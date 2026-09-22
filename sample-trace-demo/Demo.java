@@ -1,7 +1,9 @@
 import java.util.Arrays;
 
 // Ripple demo target (§6): one deliberately broken method with a SILENT wrong result.
-// Run:  javac -d out Demo.java && java -cp out Demo
+// Run:  javac -g --release 21 -d out Demo.java && java -cp out Demo
+// (The --release 21 matters: the tracer launches your program on the IDE's
+// Java 21 runtime, so class files newer than v65 will be refused.)
 public class Demo {
 
     public static void main(String[] args) {
