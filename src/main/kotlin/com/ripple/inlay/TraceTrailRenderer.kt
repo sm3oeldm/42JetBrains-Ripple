@@ -46,6 +46,21 @@ object TraceTrailRenderer {
         }
         val model = editor.inlayModel
 
+        // Which variables actually MOVE during this run?
+        //
+        // A chip has maybe 60 characters of usable width before it runs off the
+        // right edge of the editor. Rendering in map order put the method's
+        // parameters first — and a parameter like prices=[100.0, 50.0, 25.0] is
+        // both long and constant, so it consumed the whole chip and pushed
+        // `total` (the only variable the bug is visible in) off screen entirely.
+        //
+        // The interesting variables are the ones that change. Lead with those.
+        val varying: Set<String> = session.events
+            .flatMap { it.variableSnapshots.entries }
+            .groupBy({ it.key }, { it.value })
+            .filterValues { it.distinct().size > 1 }
+            .keys
+
         for (line in session.events.map { it.lineNumber }.distinct().sorted()) {
             val onLine = session.eventsForLine(line)
             if (onLine.isEmpty()) continue
@@ -60,7 +75,7 @@ object TraceTrailRenderer {
             }
 
             val label = buildString {
-                append(summarize(chosen.variableSnapshots))
+                append(summarize(chosen.variableSnapshots, varying))
                 if (visitIndex == null && onLine.size > 1) append("  (×${onLine.size})")
                 if (visitIndex != null && onLine.size > 1) {
                     append("  [${chosen.visitIndex + 1}/${onLine.size}]")
@@ -78,6 +93,43 @@ object TraceTrailRenderer {
         }
     }
 
-    private fun summarize(vars: Map<String, String>): String =
-        vars.entries.joinToString("  ") { (k, v) -> "$k=$v" }
+    /** Usable chip width before the text runs off the right edge of the editor. */
+    private const val MAX_LABEL = 72
+
+    /** Long constants get shortened rather than dropped, so context survives. */
+    private const val MAX_CONSTANT_VALUE = 18
+
+    /**
+     * Render one line's snapshot, most informative part first.
+     *
+     * Order: variables that CHANGE during the run, then the ones that do not.
+     * Constants are also abbreviated, because a long unchanging array is the
+     * least useful thing on the line and the most expensive in width.
+     */
+    private fun summarize(vars: Map<String, String>, varying: Set<String>): String {
+        if (vars.isEmpty()) return ""
+
+        val (changing, constant) = vars.entries.partition { it.key in varying }
+
+        val parts = ArrayList<String>(vars.size)
+        changing.sortedBy { it.key }.forEach { parts += "${it.key}=${it.value}" }
+        constant.sortedBy { it.key }.forEach { (k, v) ->
+            val short = if (v.length > MAX_CONSTANT_VALUE) v.take(MAX_CONSTANT_VALUE - 1) + "…" else v
+            parts += "$k=$short"
+        }
+
+        // Build up to the width budget, then say how many were hidden rather
+        // than silently cutting mid-token.
+        val out = StringBuilder()
+        var shown = 0
+        for (p in parts) {
+            val addition = if (out.isEmpty()) p.length else p.length + 2
+            if (out.isNotEmpty() && out.length + addition > MAX_LABEL) break
+            if (out.isNotEmpty()) out.append("  ")
+            out.append(p)
+            shown++
+        }
+        if (shown < parts.size) out.append("  +${parts.size - shown}")
+        return out.toString()
+    }
 }

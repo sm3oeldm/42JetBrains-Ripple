@@ -96,6 +96,24 @@ class JdiSessionTest : BasePlatformTestCase() {
     }
 
     /**
+     * Find a method's line range by reading the source.
+     *
+     * Hardcoded line numbers rot the instant anyone edits a comment above the
+     * method — which is exactly how this test broke once already, and how the
+     * standalone JDI probe silently reported "0 events" for a whole afternoon.
+     * Lines with no executable code simply yield no JDI location, so returning a
+     * generous superset is safe.
+     */
+    private fun lineRangeOf(sourceFile: File, signatureFragment: String): IntRange? {
+        if (!sourceFile.isFile) return null
+        val lines = sourceFile.readLines()
+        val start = lines.indexOfFirst { it.contains(signatureFragment) }
+        if (start < 0) return null
+        // 1-based, and a comfortable superset of the body.
+        return (start + 1)..minOf(start + 12, lines.size)
+    }
+
+    /**
      * The demo scenario, end to end.
      *
      * This is the case that was BROKEN until the entry-point fix: the method
@@ -107,6 +125,10 @@ class JdiSessionTest : BasePlatformTestCase() {
     fun testTracesAcrossClassesWhenEntryPointIsElsewhere() {
         val out = File("sample-blast-demo/out")
         if (!File(out, "com/shop/PriceCalculator.class").isFile) return
+        val range = lineRangeOf(
+            File("sample-blast-demo/src/main/java/com/shop/PriceCalculator.java"),
+            "static double applyDiscount"
+        ) ?: return
 
         val session = JdiSession(
             JdiTraceConfig(
@@ -115,7 +137,7 @@ class JdiSessionTest : BasePlatformTestCase() {
                 mainClass = "com.shop.Main",              // entry point
                 targetClass = "com.shop.PriceCalculator", // what we instrument
                 methodQualifiedName = "com.shop.PriceCalculator#applyDiscount",
-                lines = 23..30
+                lines = range
             )
         ).run(null)
 
