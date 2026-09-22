@@ -72,6 +72,7 @@ class RippleAnalyzeAction : AnAction() {
             private var session: TraceSession? = null
             private var blastTrace: BlastTraceResult? = null
             private var traceProblem: String? = null
+            private var staleness: String? = null
 
             private val startedAt = System.currentTimeMillis()
 
@@ -116,6 +117,29 @@ class RippleAnalyzeAction : AnAction() {
                             result,
                             resolver = PsiMethodBodyLineResolver(project)
                         )
+                        // Rebuild first, then REFUSE to trace stale bytecode.
+                        //
+                        // JDI sets breakpoints from the class file's line table.
+                        // If that class is older than the source, the breakpoints
+                        // land on the wrong lines and the plugin paints values
+                        // from code that no longer exists onto the code that does.
+                        // Every number is wrong and nothing says so. Silence is
+                        // the right answer here; wrong data that looks right is
+                        // how people lose an afternoon.
+                        com.ripple.engine.ProjectRebuilder.rebuild(project, indicator)
+
+                        val sources = com.intellij.openapi.application.ReadAction
+                            .compute<Map<String, String?>, RuntimeException> {
+                                result.distinctNodes.associate { n -> n.key.fqcn to n.filePath }
+                            }
+                        val freshness = com.ripple.engine.StalenessCheck
+                            .check(prepared.config.classpath, sources)
+
+                        if (freshness is com.ripple.engine.StalenessCheck.Verdict.Stale) {
+                            staleness = freshness.summary
+                            return@run
+                        }
+
                         indicator.text = "Ripple: recording ${targets.size} methods"
 
                         blastTrace = try {
@@ -191,7 +215,7 @@ class RippleAnalyzeAction : AnAction() {
                 session?.let { s ->
                     if (!editor.isDisposed) TraceTrailRenderer.render(editor, s)
                 }
-                notify(project, summary(result, blastTrace, traceProblem), level(result, blastTrace))
+                notify(project, summary(result, blastTrace, traceProblem, staleness), level(result, blastTrace))
             }
 
             override fun onCancel() {
@@ -216,7 +240,12 @@ class RippleAnalyzeAction : AnAction() {
         is TraceEngine.Failure.NotCompiled -> "${f.simpleName}.class not found — build first (javac -g)"
     }
 
-    private fun summary(result: BlastResult, blastTrace: BlastTraceResult?, problem: String?): String {
+    private fun summary(
+        result: BlastResult,
+        blastTrace: BlastTraceResult?,
+        problem: String?,
+        staleness: String?
+    ): String {
         if (result.isEmpty) return "Ripple: nothing to analyze — no changes and no method at the caret."
         val head = "${result.totalInRadius} in blast radius, ${result.redList.size} with no test " +
             "(${result.uncoveredPercent}%)"
@@ -228,6 +257,12 @@ class RippleAnalyzeAction : AnAction() {
         // usually because nothing calls it yet - and saying nothing makes the
         // whole feature look broken rather than the code look unreachable.
         // So say it, and say WHY.
+        staleness?.let {
+            return "Ripple: not recording — the compiled classes are out of date ($it). " +
+                "Build the project (Ctrl+F9), or run: javac -g -d out \$(sources) — " +
+                "tracing stale bytecode would show you values from code you have already changed."
+        }
+
         val root = result.roots.firstOrNull()
         if (trace != null && !trace.timedOut && root != null &&
             !trace.executedNodeIds.contains(root.key.id)

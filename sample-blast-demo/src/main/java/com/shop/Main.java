@@ -11,9 +11,11 @@ public class Main {
         System.out.println("prices:   " + Arrays.toString(prices));
         System.out.println("discount: " + (discount * 100) + "%");
 
-        double total = PriceCalculator.applyDiscount(prices, discount);
+        double total1 = PriceCalculator.applyDiscount(prices, discount);
+        double total2 = PriceCalculator.applyDiscountt(prices, discount);
 
-        System.out.println("charged:  " + total);
+        System.out.println("charged:  " + total1);
+        System.out.println("charged:  " + total2);
         System.out.println("expected: " + PriceCalculator.round((100.00 + 50.00 + 25.00) * 0.90));
     }
 }
