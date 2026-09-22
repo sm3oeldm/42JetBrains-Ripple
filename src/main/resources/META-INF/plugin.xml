@@ -26,7 +26,12 @@
                 text="Trace This Method"
                 description="Run this method under Ripple and show inline state trails">
             <add-to-group group-id="EditorPopupMenu" anchor="first"/>
-            <keyboard-shortcut keymap="$default" first-keystroke="control alt T"/>
+            <!-- NOT control alt T: that is "Surround With" in IDEA's own $default
+                 keymap (verified in keymaps/$default.xml inside app-client.jar),
+                 so on stage you get the Surround With popup instead of a trace.
+                 control alt G has no binding in that keymap. The action is also
+                 first in the editor context menu as a fallback route. -->
+            <keyboard-shortcut keymap="$default" first-keystroke="control alt G"/>
         </action>
         <!-- Ripple.Diagnose is intentionally UNREGISTERED for submission: it is a
              development-only inspector and judges should not see it in the Tools

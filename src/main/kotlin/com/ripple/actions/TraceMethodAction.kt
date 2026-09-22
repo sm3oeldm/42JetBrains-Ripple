@@ -75,9 +75,9 @@ class TraceMethodAction : AnAction() {
     private fun message(f: TraceEngine.Failure): String = when (f) {
         TraceEngine.Failure.NoMethodAtCaret ->
             "Place the caret inside a Java method first."
-        TraceEngine.Failure.NoMainInClass ->
-            "Ripple traces the program from main() in the same class — " +
-                "put the caret in a method of a class that has a main()."
+        TraceEngine.Failure.NoMainInProject ->
+            "Ripple needs an entry point to launch. No class in this project has a " +
+                "public static void main(String[]) — open a project that has one."
         is TraceEngine.Failure.NotCompiled ->
             "Could not find compiled ${f.simpleName}.class — build the project first (javac -g)."
     }

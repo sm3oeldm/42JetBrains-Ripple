@@ -95,6 +95,46 @@ class JdiSessionTest : BasePlatformTestCase() {
         assertTrue("loop recorded only $loopVisits — visit indexing is broken", loopVisits.size >= 2)
     }
 
+    /**
+     * The demo scenario, end to end.
+     *
+     * This is the case that was BROKEN until the entry-point fix: the method
+     * worth tracing (PriceCalculator.applyDiscount) lives in a class with no
+     * main(), and the entry point is com.shop.Main. TraceEngine used to refuse
+     * outright, so pressing Trace on the demo method produced a warning balloon
+     * instead of a trail — the whole second half of the demo did not exist.
+     */
+    fun testTracesAcrossClassesWhenEntryPointIsElsewhere() {
+        val out = File("sample-blast-demo/out")
+        if (!File(out, "com/shop/PriceCalculator.class").isFile) return
+
+        val session = JdiSession(
+            JdiTraceConfig(
+                javaBin = javaBin(),
+                classpath = out.absolutePath,
+                mainClass = "com.shop.Main",              // entry point
+                targetClass = "com.shop.PriceCalculator", // what we instrument
+                methodQualifiedName = "com.shop.PriceCalculator#applyDiscount",
+                lines = 23..30
+            )
+        ).run(null)
+
+        assertTrue("no events — entry point and target class are not decoupled", session.events.isNotEmpty())
+
+        val totals = session.events.mapNotNull { it.variableSnapshots["total"] }
+        assertTrue("local 'total' was never captured: ${session.events.map { it.variableSnapshots.keys }}",
+            totals.isNotEmpty())
+
+        // The bug is the discount compounding once per item. These three values
+        // only appear together if the discount really is applied three times.
+        assertTrue("discount did not compound as expected, saw: $totals",
+            totals.contains("90.0") && totals.contains("126.0") && totals.contains("135.9"))
+
+        // Multiple loop passes, so the scrubber has something to scrub.
+        val passes = session.events.map { it.visitIndex }.distinct()
+        assertTrue("only $passes pass(es) recorded — nothing to scrub", passes.size >= 3)
+    }
+
     fun testTraceIsNotFlaky() {
         val cp = sampleClasspath() ?: return
         // Five runs. The double-resume bug passed ~1 time in 6, so a single run

@@ -27,7 +27,7 @@ object TraceEngine {
     /** Why a trace could not be started. Each maps to one user-facing message. */
     sealed interface Failure {
         data object NoMethodAtCaret : Failure
-        data object NoMainInClass : Failure
+        data object NoMainInProject : Failure
         data class NotCompiled(val simpleName: String) : Failure
     }
 
@@ -52,11 +52,26 @@ object TraceEngine {
         val target = PsiMethodUtil.methodAtCaret(psiFile, caretOffset)
             ?: return Prepared.Failed(Failure.NoMethodAtCaret)
 
-        // Phase 1 scope (§3.4 step 2): the program is entered via main() in the
-        // same class. Anything else needs run-configuration selection, which the
-        // spec explicitly defers.
-        if (!target.hasMain) return Prepared.Failed(Failure.NoMainInClass)
+        // The ENTRY POINT and the TRACED CLASS are different things.
+        //
+        // We used to require main() in the same class as the traced method, which
+        // made most real code untraceable — you almost never edit the class that
+        // holds main. Our own demo is the proof: PriceCalculator.applyDiscount is
+        // the method worth tracing, and main lives in com.shop.Main.
+        //
+        // So: launch whatever entry point the project has, and set breakpoints on
+        // the class we actually care about. JdiTraceConfig already carried
+        // mainClass and targetClass as separate fields; only this resolver was
+        // collapsing them.
+        val mainClass = if (target.hasMain) {
+            target.fqcn
+        } else {
+            PsiMethodUtil.findMainClasses(project, preferPackage = target.fqcn.substringBeforeLast('.', ""))
+                .firstOrNull() ?: return Prepared.Failed(Failure.NoMainInProject)
+        }
 
+        // Resolve the classpath from the file being traced; in a single-module
+        // project that is also where the entry point compiles to.
         val simpleName = target.fqcn.substringAfterLast('.')
         val launch = PsiMethodUtil.resolveLaunch(project, virtualFile, simpleName)
             ?: return Prepared.Failed(Failure.NotCompiled(simpleName))
@@ -65,7 +80,7 @@ object TraceEngine {
             config = JdiTraceConfig(
                 javaBin = launch.javaBin,
                 classpath = launch.classpath,
-                mainClass = target.fqcn,
+                mainClass = mainClass,
                 targetClass = target.fqcn,
                 methodQualifiedName = target.methodQualifiedName,
                 lines = target.lineRange

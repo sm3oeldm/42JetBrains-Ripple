@@ -9,7 +9,12 @@ import com.intellij.openapi.roots.CompilerModuleExtension
 import com.intellij.openapi.roots.ModuleRootManager
 import com.intellij.openapi.roots.ProjectRootManager
 import com.intellij.openapi.vfs.VirtualFile
+import com.intellij.psi.CommonClassNames
+import com.intellij.psi.PsiArrayType
 import com.intellij.psi.PsiClass
+import com.intellij.psi.PsiModifier
+import com.intellij.psi.search.GlobalSearchScope
+import com.intellij.psi.search.PsiShortNamesCache
 import com.intellij.psi.PsiDocumentManager
 import com.intellij.psi.PsiJavaFile
 import com.intellij.psi.PsiMethod
@@ -37,6 +42,42 @@ object PsiMethodUtil {
         val hasMain = method.name == "main" ||
             cls.methods.any { it.name == "main" && it.hasModifierProperty(com.intellij.psi.PsiModifier.STATIC) }
         return Target(method, fqcn, "$fqcn#${method.name}", startLine..endLine, hasMain)
+    }
+
+    /**
+     * Fully-qualified names of every class in the project with a runnable
+     * `public static void main(String[])`.
+     *
+     * The tracer needs an ENTRY POINT to launch, which is almost never the class
+     * you are editing. PriceCalculator has no main; Main does. Requiring the
+     * traced method to live in the same class as main made most real code
+     * untraceable, including our own demo.
+     *
+     * [preferPackage] floats entry points in the same package to the front, so
+     * the obvious one wins without asking the user.
+     *
+     * Call with read access.
+     */
+    fun findMainClasses(project: Project, preferPackage: String? = null): List<String> {
+        val scope = GlobalSearchScope.projectScope(project)
+        val names = PsiShortNamesCache.getInstance(project)
+            .getMethodsByName("main", scope)
+            .asSequence()
+            .filter { m ->
+                m.hasModifierProperty(PsiModifier.PUBLIC) &&
+                    m.hasModifierProperty(PsiModifier.STATIC) &&
+                    m.returnType?.equalsToText("void") == true &&
+                    m.parameterList.parametersCount == 1 &&
+                    (m.parameterList.parameters[0].type as? PsiArrayType)
+                        ?.componentType?.equalsToText(CommonClassNames.JAVA_LANG_STRING) == true
+            }
+            .mapNotNull { PsiTreeUtil.getParentOfType(it, PsiClass::class.java)?.qualifiedName }
+            .distinct()
+            .toList()
+
+        if (preferPackage.isNullOrEmpty()) return names
+        val (samePkg, rest) = names.partition { it.substringBeforeLast('.', "") == preferPackage }
+        return samePkg + rest
     }
 
     data class Launch(val javaBin: String, val classpath: String)
