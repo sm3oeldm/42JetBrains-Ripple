@@ -1,4 +1,4 @@
-# TraceCraft — Build Specification
+# Ripple — Build Specification
 **In-Editor Execution-Flow & State Time Machine (IntelliJ Plugin)**
 
 Target event: **42 Abu Dhabi × JetBrains Hackathon**, Sept 22–23, 2026 ("Help the Developer")
@@ -62,12 +62,12 @@ Do **not** attempt to build all three to the original spec's depth. A working P0
 ### 3.2 Module map
 
 ```
-tracecraft/
+ripple/
 ├── build.gradle.kts
 ├── gradle.properties
 ├── settings.gradle.kts
 └── src/main/
-    ├── kotlin/com/tracecraft/
+    ├── kotlin/com/ripple/
     │   ├── actions/
     │   │   └── TraceMethodAction.kt        # right-click / gutter action: "Trace This Method"
     │   ├── engine/
@@ -290,7 +290,7 @@ class CallGraphLineMarkerProvider : LineMarkerProvider {
             { "View callers / callees" }, // tooltip
             { _, _ -> showCallGraphPopup(method) },
             GutterIconRenderer.Alignment.LEFT,
-            { "TraceCraft call graph" }
+            { "Ripple call graph" }
         )
     }
 }
@@ -308,8 +308,8 @@ Render with a `Tree`/`SimpleTree` inside a `JBPopupFactory.getInstance().createC
 
 ```xml
 <idea-plugin>
-    <id>com.tracecraft.plugin</id>
-    <name>TraceCraft</name>
+    <id>com.ripple.plugin</id>
+    <name>Ripple</name>
     <vendor>42 Abu Dhabi x JetBrains Hackathon Team</vendor>
     <description>In-editor execution-flow and state time machine.</description>
     <depends>com.intellij.modules.platform</depends>
@@ -317,20 +317,20 @@ Render with a `Tree`/`SimpleTree` inside a `JBPopupFactory.getInstance().createC
 
     <extensions defaultExtensionNs="com.intellij">
         <localInspection language="JAVA"
-                         displayName="TraceCraft edge-case hypothesizer"
-                         groupName="TraceCraft"
+                         displayName="Ripple edge-case hypothesizer"
+                         groupName="Ripple"
                          enabledByDefault="true"
                          level="WARNING"
-                         implementationClass="com.tracecraft.inspection.EdgeCaseInspection"/>
+                         implementationClass="com.ripple.inspection.EdgeCaseInspection"/>
         <codeInsight.lineMarkerProvider language="JAVA"
-                         implementationClass="com.tracecraft.gutter.CallGraphLineMarkerProvider"/>
+                         implementationClass="com.ripple.gutter.CallGraphLineMarkerProvider"/>
     </extensions>
 
     <actions>
-        <action id="TraceCraft.TraceMethod"
-                class="com.tracecraft.actions.TraceMethodAction"
+        <action id="Ripple.TraceMethod"
+                class="com.ripple.actions.TraceMethodAction"
                 text="Trace This Method"
-                description="Run this method under TraceCraft and show inline state trails">
+                description="Run this method under Ripple and show inline state trails">
             <add-to-group group-id="EditorPopupMenu" anchor="first"/>
             <keyboard-shortcut keymap="$default" first-keystroke="control alt T"/>
         </action>
@@ -387,7 +387,7 @@ Good candidate: an array-processing function with an off-by-one that corrupts an
 
 ## 7. Demo script (3 minutes, rehearse against a clock)
 
-1. **(20s) The problem.** One line: "Debugging means breakpoints, stepping, and losing spatial context between code and state. TraceCraft brings runtime state into the editor, automatically."
+1. **(20s) The problem.** One line: "Debugging means breakpoints, stepping, and losing spatial context between code and state. Ripple brings runtime state into the editor, automatically."
 2. **(30s) Show the bug.** Open the sample project's broken method. Point at the suspicious loop bound. "This looks right. It isn't."
 3. **(45s) Inline State Trails.** Trigger `Trace This Method` (keyboard shortcut, not menu-diving). Values populate inline within a couple seconds. Point directly at the line/iteration where the value diverges from what it should be. This is the money shot — let it breathe on screen for a beat before talking over it.
 4. **(45s) Edge-Case Hypothesizer.** `Alt+Enter` on the same loop (or a second prepared snippet) → show the warning → generate the micro-test → show the scratch buffer with a usable test stub. "Same bug, caught statically, with a test ready to prove it."
