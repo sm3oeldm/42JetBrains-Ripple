@@ -33,13 +33,47 @@ class RippleState {
     // Written from a background task, read from the EDT.
     private val last = AtomicReference<Analysis?>(null)
 
+    /**
+     * Methods we have already written a test for, by NavigationKey id.
+     *
+     * Without this, pressing "Write the Missing Tests" twice regenerates every
+     * file: the red list is a snapshot from the last Analyze and does not know
+     * a test was just produced for it. The second run costs API calls, takes
+     * just as long, and replaces perfectly good files with different ones —
+     * all benefit-free.
+     *
+     * In memory and per session on purpose. Once the generated tests are real
+     * files in the project, the coverage pass stops listing those methods as
+     * uncovered anyway, so this only has to bridge the gap between generating
+     * and re-analysing.
+     */
+    private val generated = java.util.concurrent.ConcurrentHashMap<String, String>()
+
     fun put(blast: BlastResult, trace: BlastTraceResult?, atMillis: Long) {
         last.set(Analysis(blast, trace, atMillis))
     }
 
     fun latest(): Analysis? = last.get()
 
-    fun clear() = last.set(null)
+    /** Record that [fileName] was written for [nodeId]. */
+    fun markGenerated(nodeId: String, fileName: String) {
+        generated[nodeId] = fileName
+    }
+
+    /** The file already written for [nodeId], or null. */
+    fun generatedFor(nodeId: String): String? = generated[nodeId]
+
+    /** Forget one, so the next run writes it again. */
+    fun forgetGenerated(nodeId: String) {
+        generated.remove(nodeId)
+    }
+
+    fun forgetAllGenerated() = generated.clear()
+
+    fun clear() {
+        last.set(null)
+        generated.clear()
+    }
 
     companion object {
         fun getInstance(project: Project): RippleState = project.service()

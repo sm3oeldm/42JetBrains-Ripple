@@ -35,7 +35,11 @@ import com.ripple.blast.BlastNode
  * to the deterministic template generator. A demo machine with bad wifi still
  * produces test files.
  */
-class GenerateTestsAction : AnAction() {
+open class GenerateTestsAction : AnAction() {
+
+    /** Subclasses override to ignore the already-written record. See [RewriteTestsAction]. */
+    protected open val force: Boolean get() = false
+
 
     override fun getActionUpdateThread(): ActionUpdateThread = ActionUpdateThread.BGT
 
@@ -44,13 +48,16 @@ class GenerateTestsAction : AnAction() {
         val ready = project != null &&
             !project.isDisposed &&
             !DumbService.getInstance(project).isDumb &&
-            RippleState.getInstance(project).latest()?.blast?.redList?.isNotEmpty() == true
+            RippleState.getInstance(project).let { s ->
+                val red = s.latest()?.blast?.redList.orEmpty()
+                red.isNotEmpty() && (force || red.any { n -> s.generatedFor(n.key.id) == null })
+            }
         e.presentation.isEnabled = ready
         e.presentation.isVisible = project != null
         e.presentation.description = if (ready) {
             "Write tests for the methods nothing is covering, using the values the recording observed"
         } else {
-            "Run Ripple: Analyze first — there is no red list yet"
+            "Nothing to write — run Ripple: Analyze first, or every untested method already has one"
         }
     }
 
@@ -69,6 +76,29 @@ class GenerateTestsAction : AnAction() {
 
         val apiKey = RippleSecrets.groqKey(project)
 
+        val state = RippleState.getInstance(project)
+
+        // Only the ones we have not already written.
+        //
+        // The red list is a snapshot from the last Analyze; it does not know a
+        // test was produced for it thirty seconds ago. Without this filter a
+        // second press regenerates everything - same cost, same wait, and it
+        // overwrites good files with different ones.
+        val alreadyDone = if (force) emptyList() else redList.filter { state.generatedFor(it.key.id) != null }
+        val todo = if (force) redList else redList.filter { state.generatedFor(it.key.id) == null }
+
+        if (todo.isEmpty()) {
+            notify(
+                project,
+                "Already written for all ${alreadyDone.size} untested method" +
+                    (if (alreadyDone.size == 1) "" else "s") +
+                    ". Use \"Ripple: Rewrite the Generated Tests\" to write them again, " +
+                    "or re-run Analyze to refresh the list.",
+                NotificationType.INFORMATION
+            )
+            return
+        }
+
         object : Task.Backgroundable(project, "Ripple: writing the missing tests", true) {
             private val written = ArrayList<String>()
             private var aiCount = 0
@@ -77,9 +107,9 @@ class GenerateTestsAction : AnAction() {
 
             override fun run(indicator: ProgressIndicator) {
                 indicator.isIndeterminate = false
-                redList.forEachIndexed { index, node ->
+                todo.forEachIndexed { index, node ->
                     indicator.checkCanceled()
-                    indicator.fraction = index.toDouble() / redList.size
+                    indicator.fraction = index.toDouble() / todo.size
                     indicator.text = "Ripple: ${node.displayName.substringBefore('(')}"
 
                     val ctx = TestGenerator.contextFor(project, node, analysis.blast, analysis.trace)
@@ -102,6 +132,7 @@ class GenerateTestsAction : AnAction() {
                         node.key.methodName.replaceFirstChar { it.uppercase() } + "Test"
                     val name = (declared ?: fallbackName) + ".java"
                     openScratch(project, name, source)
+                    state.markGenerated(node.key.id, name)
                     written += name
                 }
             }
@@ -118,6 +149,7 @@ class GenerateTestsAction : AnAction() {
             override fun onSuccess() {
                 val head = "Ripple: wrote ${written.size} test${if (written.size == 1) "" else "s"}"
                 val detail = buildString {
+                    if (alreadyDone.isNotEmpty()) append(" · skipped ${alreadyDone.size} already written")
                     if (aiCount > 0) append(" · $aiCount from observed values")
                     if (fallbackCount > 0) {
                         append(" · $fallbackCount from the offline template")
@@ -153,6 +185,17 @@ class GenerateTestsAction : AnAction() {
                 .notify(project)
         }
     }
+}
+
+/**
+ * "Ripple: Rewrite the Generated Tests".
+ *
+ * The escape hatch. Generation is idempotent by default so a second press is
+ * not a silent, benefit-free re-run — but a generated test can come out wrong,
+ * and without this you would be stuck with it for the session.
+ */
+class RewriteTestsAction : GenerateTestsAction() {
+    override val force: Boolean get() = true
 }
 
 /**

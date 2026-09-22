@@ -44,6 +44,12 @@
             <add-to-group group-id="EditorPopupMenu" anchor="after" relative-to-action="Ripple.Analyze"/>
             <keyboard-shortcut keymap="$default" first-keystroke="control alt W"/>
         </action>
+        <action id="Ripple.RewriteTests"
+                class="com.ripple.actions.RewriteTestsAction"
+                text="Ripple: Rewrite the Generated Tests"
+                description="Write the tests again, replacing the ones already generated this session">
+            <add-to-group group-id="EditorPopupMenu" anchor="after" relative-to-action="Ripple.GenerateTests"/>
+        </action>
         <action id="Ripple.Scrub"
                 class="com.ripple.rewind.OpenScrubberAction"
                 text="Ripple: Scrub Recording"
