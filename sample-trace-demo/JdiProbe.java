@@ -42,6 +42,11 @@ public class JdiProbe {
     static final int MAX_EVENTS = 5000;
     static final long TIMEOUT_MS = 12000;
 
+    // Demo.reverse() body range. Lines with no executable code (the signature,
+    // the closing brace, comments) simply yield no location and are skipped.
+    static final int REVERSE_FIRST_LINE = 22;
+    static final int REVERSE_LAST_LINE = 26;
+
     public static void main(String[] args) throws Exception {
         int port;
         try (ServerSocket s = new ServerSocket(0)) { port = s.getLocalPort(); }
@@ -60,9 +65,24 @@ public class JdiProbe {
 
         ClassPrepareRequest cpr = vm.eventRequestManager().createClassPrepareRequest();
         cpr.addClassFilter("Demo");
-        cpr.setSuspendPolicy(EventRequest.SUSPEND_EVENT_THREAD);
+        // SUSPEND_ALL, not SUSPEND_EVENT_THREAD: nothing else may make progress
+        // while we are installing breakpoints, or a short main() finishes first.
+        cpr.setSuspendPolicy(EventRequest.SUSPEND_ALL);
         cpr.enable();
-        vm.resume();
+
+        // DO NOT call vm.resume() here.
+        //
+        // With suspend=y the VM starts suspended and reports that as a
+        // VMStartEvent whose EventSet we resume in the loop below. Resuming
+        // here as well is a DOUBLE resume: JDI suspend counts are per thread
+        // and resume() decrements them, so the extra decrement drives the count
+        // negative and the *next* suspension - our ClassPrepareEvent - silently
+        // does not suspend anything. The program then runs to completion in
+        // microseconds, the VM exits, and every locationsOfLine() call fails
+        // with VMDisconnectedException.
+        //
+        // Symptom when this is wrong: "0 events captured", intermittently.
+        // Exactly one resume per suspend. The loop does all of them.
 
         List<String> log = new ArrayList<>();
         Map<Integer, Integer> visits = new HashMap<>();
@@ -89,11 +109,26 @@ public class JdiProbe {
                 if (ev instanceof ClassPrepareEvent) {
                     ClassPrepareEvent cpe = (ClassPrepareEvent) ev;
                     ReferenceType rt = cpe.referenceType();
-                    System.out.println("[probe] class prepared: " + rt.name());
-                    for (int line : new int[]{21, 22}) {
+                    System.out.println("[probe] class prepared: " + rt.name()
+                            + " | suspendPolicy=" + set.suspendPolicy()
+                            + " | eventThreadSuspended=" + cpe.thread().isSuspended()
+                            + " | vmAlive=" + proc.isAlive()
+                            + " | allLineLocations=" + safeCount(rt));
+                    // Scan the whole reverse() method range rather than two
+                    // hardcoded lines. Hardcoded constants silently rot the
+                    // moment a comment shifts the file (they did: the method
+                    // moved from 21-22 to 23-24), and a probe that reports
+                    // "0 events" looks like a broken tracer rather than a
+                    // stale constant. The plugin derives this range from PSI;
+                    // the probe now mirrors that by scanning a superset.
+                    for (int line = REVERSE_FIRST_LINE; line <= REVERSE_LAST_LINE; line++) {
                         List<Location> locs;
                         try { locs = rt.locationsOfLine(line); }
-                        catch (Exception e) { locs = List.of(); }
+                        catch (Exception e) {
+                            System.out.println("[probe] locationsOfLine(" + line + ") threw "
+                                    + e.getClass().getName() + ": " + e.getMessage());
+                            locs = List.of();
+                        }
                         if (locs.isEmpty()) {
                             System.out.println("[probe] no code location for line " + line);
                             continue;
@@ -150,6 +185,11 @@ public class JdiProbe {
         System.out.println("[probe] ==== TRACE (" + log.size() + " events, truncated=" + truncated + ") ====");
         for (String l : log) System.out.println("[trace] " + l);
         if (log.isEmpty()) { System.out.println("[probe] FAIL: no events captured"); System.exit(1); }
+    }
+
+    static int safeCount(ReferenceType rt) {
+        try { return rt.allLineLocations().size(); }
+        catch (Exception e) { return -1; }
     }
 
     static VirtualMachine attach(int port) throws Exception {
