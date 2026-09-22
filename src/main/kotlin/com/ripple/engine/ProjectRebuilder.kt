@@ -107,9 +107,27 @@ object ProjectRebuilder {
         val javac = javacBesideJava(javaBin) ?: return false
         val base = project.basePath ?: return false
 
+        // MAIN sources only.
+        //
+        // Compiling test sources as well needs the test classpath - JUnit,
+        // mocks, everything - which we do not have. javac then fails on the
+        // first test file ("package org.junit does not exist") and the whole
+        // compile is lost, including the production classes we actually needed.
+        // We never instrument test code anyway.
         val sources = java.io.File(base).walkTopDown()
-            .onEnter { it.name != "build" && it.name != "out" && !it.name.startsWith(".") }
+            .onEnter { dir ->
+                dir.name != "build" && dir.name != "out" &&
+                    !dir.name.startsWith(".") &&
+                    !dir.name.equals("test", ignoreCase = true) &&
+                    !dir.name.equals("tests", ignoreCase = true)
+            }
             .filter { it.isFile && it.extension == "java" }
+            .filter { f ->
+                // invariantSeparatorsPath gives forward slashes on every OS, so
+                // this needs no backslash handling.
+                val p = f.invariantSeparatorsPath
+                !p.contains("/src/test/") && !p.contains("/test/java/")
+            }
             .map { it.absolutePath }
             .toList()
         if (sources.isEmpty()) return false

@@ -128,9 +128,20 @@ class RippleAnalyzeAction : AnAction() {
                         // how people lose an afternoon.
                         com.ripple.engine.ProjectRebuilder.rebuild(project, indicator)
 
+                        // Check ONLY the classes we are about to instrument.
+                        //
+                        // Checking every node in the radius meant checking TEST
+                        // classes too - including generated ones that exist as
+                        // scratch files and have no .class at all. They blocked
+                        // every recording with "CartTest has never been compiled",
+                        // which is true and completely irrelevant: we never set a
+                        // breakpoint in a test.
+                        val targetClasses = targets.map { it.fqcn }.toSet()
                         val sources = com.intellij.openapi.application.ReadAction
                             .compute<Map<String, String?>, RuntimeException> {
-                                result.distinctNodes.associate { n -> n.key.fqcn to n.filePath }
+                                result.distinctNodes
+                                    .filter { it.key.fqcn in targetClasses }
+                                    .associate { n -> n.key.fqcn to n.filePath }
                             }
                         var freshness = com.ripple.engine.StalenessCheck
                             .check(prepared.config.classpath, sources)
