@@ -1,0 +1,46 @@
+<!-- Plugin Configuration File. See https://plugins.jetbrains.com/docs/intellij/plugin-configuration-file.html -->
+<idea-plugin>
+    <id>ad42.devrescue</id>
+    <name>DevRescue - Error Explainer + Health Guardian</name>
+    <vendor email="team@42abudhabi.ae">42 Abu Dhabi</vendor>
+
+    <description><![CDATA[
+    <b>Help the Developer:</b> Select any stacktrace → Explain in plain English + suggested fix.
+    Scan any file → Health Score + quick-fixes. Works offline, supercharged with LLM.
+    ]]></description>
+
+    <depends>com.intellij.modules.platform</depends>
+
+    <extensions defaultExtensionNs="com.intellij">
+        <toolWindow id="DevRescue" anchor="right"
+                    factoryClass="ad42.devrescue.DevRescueToolWindowFactory"
+                    icon="/icons/rescue.svg"/>
+        <applicationService serviceImplementation="ad42.devrescue.DevRescueSettings"/>
+        <applicationService serviceImplementation="ad42.devrescue.LlmService"/>
+    </extensions>
+
+    <actions>
+        <action id="DevRescue.ExplainError"
+                class="ad42.devrescue.ExplainErrorAction"
+                text="DevRescue: Explain Error"
+                description="Explain selected stacktrace in plain English">
+            <add-to-group group-id="EditorPopupMenu" anchor="first"/>
+            <add-to-group group-id="ConsoleViewPopupMenu" anchor="first"/>
+            <keyboard-shortcut keymap="$default" first-keystroke="alt shift E"/>
+        </action>
+        <action id="DevRescue.ScanFile"
+                class="ad42.devrescue.HealthScanAction"
+                text="DevRescue: Scan This File"
+                description="Check code health and get a 0-100 score">
+            <add-to-group group-id="EditorPopupMenu" anchor="first"/>
+            <add-to-group group-id="AnalyzeMenu" anchor="first"/>
+            <keyboard-shortcut keymap="$default" first-keystroke="alt shift H"/>
+        </action>
+        <action id="DevRescue.Settings"
+                class="ad42.devrescue.OpenSettingsAction"
+                text="DevRescue: Set API Key…"
+                description="Set OpenAI-compatible API key for better explanations">
+            <add-to-group group-id="ToolsMenu" anchor="first"/>
+        </action>
+    </actions>
+</idea-plugin>
