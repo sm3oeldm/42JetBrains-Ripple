@@ -27,6 +27,7 @@ import com.sun.jdi.event.VMDisconnectEvent
 import com.sun.jdi.request.BreakpointRequest
 import com.sun.jdi.request.ClassPrepareRequest
 import com.sun.jdi.request.EventRequest
+import com.intellij.openapi.diagnostic.Logger
 import java.io.File
 import java.net.ServerSocket
 
@@ -46,19 +47,24 @@ data class JdiTraceConfig(
 )
 
 class JdiSession(private val config: JdiTraceConfig) {
+    private val log = Logger.getInstance(JdiSession::class.java)
 
     fun run(indicator: ProgressIndicator? = null): TraceSession {
         val startedAt = System.currentTimeMillis()
         val port = freePort()
-        val debuggee = launchDebuggee(port)
+        val debuggeeLog = debuggeeLogFile()
+        val debuggee = launchDebuggee(port, debuggeeLog)
+        log.info("Ripple trace: ${config.mainClass} on port $port, log=$debuggeeLog")
         var vm: VirtualMachine? = null
         val events = mutableListOf<TraceEvent>()
         val visits = mutableMapOf<Int, Int>()
         var truncated = false
+        var sawClass = false
         try {
             vm = attachWithRetry(port)
             // Target class is never loaded yet (debuggee starts suspended), but check anyway.
             if (vm.classesByName(config.targetClass).isNotEmpty()) {
+                sawClass = true
                 setBreakpoints(vm, config.targetClass)
             } else {
                 val cpr: ClassPrepareRequest = vm.eventRequestManager().createClassPrepareRequest()
@@ -89,7 +95,9 @@ class JdiSession(private val config: JdiTraceConfig) {
                     when (ev) {
                         is ClassPrepareEvent -> {
                             if (ev.referenceType().name() == config.targetClass) {
-                                setBreakpoints(vm, config.targetClass)
+                                sawClass = true
+                                val n = setBreakpoints(vm, config.targetClass)
+                                log.info("Ripple: class prepared, $n breakpoints set")
                             }
                         }
                         is BreakpointEvent -> {
@@ -127,8 +135,20 @@ class JdiSession(private val config: JdiTraceConfig) {
                 vm?.dispose()
             } catch (ignored: Exception) {
             }
-            debuggee.destroyForcibly()
+            try {
+                if (debuggee.isAlive) debuggee.destroyForcibly()
+            } catch (ignored: Exception) {
+            }
         }
+        if (!sawClass && events.isEmpty()) {
+            // The #1 failure mode: the debuggee died before loading the target class
+            // (bad classpath, main not found). Surface its stderr instead of "0 snapshots".
+            throw IllegalStateException(
+                "Debuggee never loaded ${config.targetClass} " +
+                    "(cp=${config.classpath}). Debuggee output:\n${debuggeeLogTail(debuggeeLog)}"
+            )
+        }
+        log.info("Ripple: ${events.size} events, truncated=$truncated")
         return TraceSession(
             methodQualifiedName = config.methodQualifiedName,
             events = events.toList(),
@@ -137,10 +157,11 @@ class JdiSession(private val config: JdiTraceConfig) {
         )
     }
 
-    private fun setBreakpoints(vm: VirtualMachine, fqcn: String) {
+    private fun setBreakpoints(vm: VirtualMachine, fqcn: String): Int {
         val refTypes = vm.classesByName(fqcn)
-        if (refTypes.isEmpty()) return
+        if (refTypes.isEmpty()) return 0
         val refType = refTypes[0]
+        var count = 0
         for (line in config.lines) {
             val locs = try {
                 refType.locationsOfLine(line)
@@ -153,8 +174,10 @@ class JdiSession(private val config: JdiTraceConfig) {
                 val bp: BreakpointRequest = vm.eventRequestManager().createBreakpointRequest(loc)
                 bp.setSuspendPolicy(EventRequest.SUSPEND_EVENT_THREAD)
                 bp.enable()
+                count++
             }
         }
+        return count
     }
 
     private fun capture(be: BreakpointEvent, line: Int, visit: Int): TraceEvent {
@@ -193,18 +216,35 @@ class JdiSession(private val config: JdiTraceConfig) {
         )
     }
 
-    private fun launchDebuggee(port: Int): Process {
+    private fun debuggeeLogFile(): File {
+        // Stable path (overwritten each run): never inheritIO — an unread pipe deadlocks.
+        val f = File(System.getProperty("java.io.tmpdir"), "ripple-debuggee-last.log")
+        try {
+            if (f.exists()) f.delete()
+        } catch (ignored: Exception) {
+        }
+        return f
+    }
+
+    private fun debuggeeLogTail(f: File): String {
+        return try {
+            if (!f.isFile) "(no debuggee output captured)"
+            else f.readText().takeLast(1500).ifBlank { "(debuggee produced no output)" }
+        } catch (e: Exception) {
+            "(could not read debuggee log: ${e.message})"
+        }
+    }
+
+    private fun launchDebuggee(port: Int, logFile: File): Process {
         val cmd = mutableListOf(
             config.javaBin,
             "-agentlib:jdwp=transport=dt_socket,server=y,suspend=y,address=$port",
             "-cp", config.classpath,
             config.mainClass
         ) + config.mainArgs
-        // Temp log file (deleted on exit): never inheritIO — an unread pipe deadlocks.
-        val log = File.createTempFile("ripple-debuggee-", ".log")
-        log.deleteOnExit()
+        log.info("Ripple launch: ${cmd.joinToString(" ")}")
         return ProcessBuilder(cmd)
-            .redirectOutput(ProcessBuilder.Redirect.appendTo(log))
+            .redirectOutput(ProcessBuilder.Redirect.appendTo(logFile))
             .redirectErrorStream(true)
             .start()
     }
