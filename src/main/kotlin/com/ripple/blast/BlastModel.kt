@@ -142,7 +142,17 @@ data class BlastResult(
     val redList: List<BlastNode>
         get() = distinctNodes.filter { it.isRedListed }
 
-    val totalInRadius: Int get() = distinctNodes.count { it.kind != NodeKind.CHANGED_ROOT }
+    /**
+     * The surface your change can affect.
+     *
+     * Excludes the changed roots themselves, and excludes TEST nodes: a test
+     * method is in the radius, but it is not code that needs protecting, so
+     * counting tests in the denominator dilutes the one number the panel exists
+     * to show. With 4 unprotected callers and 2 tests, "4 of 6 (67%)" is both
+     * truer and stronger than "4 of 8 (50%)".
+     */
+    val totalInRadius: Int
+        get() = distinctNodes.count { it.kind != NodeKind.CHANGED_ROOT && it.kind != NodeKind.TEST }
 
     val uncoveredPercent: Int
         get() = if (totalInRadius == 0) 0 else (redList.size * 100) / totalInRadius

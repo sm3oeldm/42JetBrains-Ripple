@@ -14,6 +14,7 @@ import com.intellij.openapi.project.Project
 import com.intellij.openapi.vfs.VirtualFile
 import com.intellij.psi.PsiJavaFile
 import com.ripple.blast.BlastResult
+import com.ripple.blast.Execution
 import com.ripple.blast.BlastScanner
 import com.ripple.blast.ChangeDetector
 import com.ripple.blast.TraceCorrelator
@@ -105,11 +106,21 @@ class RippleAnalyzeAction : AnAction() {
                     }
                 }
 
-                // Only claim NEVER_EXECUTED when we actually recorded something.
-                // With a single-method recording, everything outside that method
-                // is simply unobserved, and marking it "never ran" would fire the
-                // headline finding on code that runs fine under its own tests.
-                session?.let { result = TraceCorrelator.correlate(result, it) }
+                // NOT_RECORDED, not NEVER_EXECUTED, for anything we did not
+                // instrument.
+                //
+                // We record ONE method today, so every other node in the radius is
+                // simply unobserved. Defaulting those to NEVER_EXECUTED produced a
+                // flatly false claim on screen: Main.main was badged "never ran"
+                // when main is the entry point that launched the program. One
+                // obviously-wrong badge discredits every other badge next to it.
+                //
+                // "Never ran" only becomes truthful once the tracer instruments
+                // the whole radius; until then we say nothing rather than
+                // something wrong.
+                session?.let {
+                    result = TraceCorrelator.correlate(result, it, unmatched = Execution.NOT_RECORDED)
+                }
             }
 
             override fun onSuccess() {

@@ -16,9 +16,15 @@ public final class PriceCalculator {
      * Sum the prices, then take a percentage off the total.
      *
      * BUG: the discount is applied INSIDE the loop, so it compounds once per
-     * item instead of being taken once at the end. Three items at 10% off do not
-     * lose 10% — they lose 27%. No exception is thrown; the number is just
-     * quietly wrong, which is exactly why a value trail is the only way to see it.
+     * item instead of being taken once at the end.
+     *
+     * 100 + 50 + 25 at 10% off should charge 157.50. It charges 135.90 - the
+     * shop gives away 21.60 on this basket. (Not 1-0.9^3: the first price is
+     * discounted three times, the second twice, the third once, so the effective
+     * discount is 22.3% of the raw 175.00, not 10% and not 27%.)
+     *
+     * No exception is thrown. The number is just quietly wrong, which is exactly
+     * why a value trail is the only way to see it.
      */
     public static double applyDiscount(double[] prices, double pct) {
         double total = 0;
