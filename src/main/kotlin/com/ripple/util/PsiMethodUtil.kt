@@ -82,9 +82,22 @@ object PsiMethodUtil {
 
     data class Launch(val javaBin: String, val classpath: String)
 
-    // Module SDK preferred (idiomatic); falls back to the current runtime + a
-    // <ClassName>.class hunt so the sample project works with zero setup.
-    fun resolveLaunch(project: Project, file: VirtualFile, simpleName: String): Launch? {
+    /**
+     * Work out which `java` to run and what classpath root to run it against.
+     *
+     * Module SDK + compiler output first, which is the idiomatic answer and what
+     * you get in any imported project. The fallback exists so a plainly-opened
+     * folder still works with zero setup.
+     *
+     * [fqcn] must be the FULLY QUALIFIED name, not the simple name. javac lays
+     * classes out by package, so `com.shop.PriceCalculator` lives at
+     * `<root>/com/shop/PriceCalculator.class`. Hunting for a bare
+     * `PriceCalculator.class` finds nothing for any class in a package — i.e.
+     * essentially all real code — and the user just sees "not compiled".
+     */
+    fun resolveLaunch(project: Project, file: VirtualFile, fqcn: String): Launch? {
+        // com.shop.PriceCalculator -> com/shop/PriceCalculator.class
+        val relativeClassPath = fqcn.replace('.', File.separatorChar) + ".class"
         val module: Module? = ModuleUtil.findModuleForFile(file, project)
         if (module != null) {
             val sdk = ModuleRootManager.getInstance(module).sdk
@@ -105,12 +118,19 @@ object PsiMethodUtil {
             File(file.parent.path)
         )
         for (dir in candidates) {
-            if (File(dir, "$simpleName.class").isFile) {
+            // Package-aware: com/shop/PriceCalculator.class under the root.
+            if (File(dir, relativeClassPath).isFile) {
                 return Launch(javaBin, dir.absolutePath)
             }
-            // one level of nesting (e.g. sample-trace-demo/out)
+            // Default package (our sample-trace-demo Demo.class sits here).
+            if (File(dir, fqcn.substringAfterLast('.') + ".class").isFile) {
+                return Launch(javaBin, dir.absolutePath)
+            }
+            // One level down, e.g. <project>/sample-blast-demo/out.
             dir.listFiles { f -> f.isDirectory }?.forEach { sub ->
-                if (File(sub, "$simpleName.class").isFile) {
+                if (File(sub, relativeClassPath).isFile ||
+                    File(sub, fqcn.substringAfterLast('.') + ".class").isFile
+                ) {
                     return Launch(javaBin, sub.absolutePath)
                 }
             }

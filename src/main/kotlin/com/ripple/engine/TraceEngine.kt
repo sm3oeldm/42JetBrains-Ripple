@@ -72,9 +72,10 @@ object TraceEngine {
 
         // Resolve the classpath from the file being traced; in a single-module
         // project that is also where the entry point compiles to.
-        val simpleName = target.fqcn.substringAfterLast('.')
-        val launch = PsiMethodUtil.resolveLaunch(project, virtualFile, simpleName)
-            ?: return Prepared.Failed(Failure.NotCompiled(simpleName))
+        // Pass the FQCN: javac lays classes out by package, so looking for a bare
+        // simple name finds nothing for any class that lives in one.
+        val launch = PsiMethodUtil.resolveLaunch(project, virtualFile, target.fqcn)
+            ?: return Prepared.Failed(Failure.NotCompiled(target.fqcn.substringAfterLast('.')))
 
         return Prepared.Ok(
             config = JdiTraceConfig(
