@@ -112,10 +112,15 @@ object PsiMethodUtil {
         val javaBin = System.getProperty("java.home") + File.separator + "bin" +
             File.separator + "java" + (if (System.getProperty("os.name").startsWith("Windows")) ".exe" else "")
         val base = project.basePath ?: return null
-        val candidates = listOf(
+        // VirtualFile.getParent() is a NULLABLE platform type. A file sitting at a
+        // content-root boundary returned null and this threw a raw NPE out of an
+        // action instead of degrading to "could not resolve launch".
+        val parentPath: String? = file.parent?.path
+        val candidates = listOfNotNull(
             File(base, "out"),
-            File(file.parent.path, "out"),
-            File(file.parent.path)
+            File(base, "build/classes/java/main"),   // Gradle's real output layout
+            parentPath?.let { File(it, "out") },
+            parentPath?.let { File(it) }
         )
         for (dir in candidates) {
             // Package-aware: com/shop/PriceCalculator.class under the root.

@@ -153,12 +153,31 @@ class JdiSession(private val config: JdiTraceConfig) {
             if (events.isEmpty()) throw e
             truncated = true
         } finally {
+            // Kill the debuggee FIRST, and wait for it to actually die.
+            //
+            // Two separate hazards, both of which break the SECOND trace rather
+            // than the first — i.e. the re-run a judge asks for:
+            //
+            //  1. vm.dispose() can block on a VM in a bad state. If the kill sits
+            //     after it, the debuggee is never killed at all. Kill first.
+            //  2. destroyForcibly() only REQUESTS termination. On Windows the
+            //     process can outlive the call still holding the JDWP port and a
+            //     lock on the compiler output directory, which breaks both the
+            //     next trace and the next build. waitFor() makes it real.
             try {
-                vm?.dispose()
+                if (debuggee.isAlive) {
+                    debuggee.destroyForcibly()
+                    if (!debuggee.waitFor(3, java.util.concurrent.TimeUnit.SECONDS)) {
+                        log.warn("Ripple: debuggee did not die within 3s; port may still be held")
+                    }
+                }
+            } catch (e: InterruptedException) {
+                // Restore the flag we just consumed; something above us is cancelling.
+                Thread.currentThread().interrupt()
             } catch (ignored: Exception) {
             }
             try {
-                if (debuggee.isAlive) debuggee.destroyForcibly()
+                vm?.dispose()
             } catch (ignored: Exception) {
             }
         }
@@ -282,9 +301,19 @@ class JdiSession(private val config: JdiTraceConfig) {
         val deadline = System.currentTimeMillis() + 10_000
         var last: Exception? = null
         while (System.currentTimeMillis() < deadline) {
+            // Cancellable. Without this, attach could sleep for 10s and the trace
+            // timeout for another 10s, giving a 20-second progress bar whose
+            // Cancel button did nothing for the first half.
+            com.intellij.openapi.progress.ProgressManager.checkCanceled()
             try {
                 return connector.attach(args)
             } catch (e: java.net.ConnectException) {
+                // Expected while the debuggee's JDWP listener is still coming up.
+                last = e
+                Thread.sleep(100)
+            } catch (e: java.io.IOException) {
+                // A half-open socket raises plain IOException, not ConnectException.
+                // Treating that as fatal turned a retryable race into a hard failure.
                 last = e
                 Thread.sleep(100)
             }

@@ -20,7 +20,20 @@ class GenerateMicroTestFix(private val target: PsiElement) : LocalQuickFix {
     override fun getFamilyName() = "Generate micro-test for this edge case"
 
     override fun applyFix(project: Project, descriptor: ProblemDescriptor) {
-        val method = PsiTreeUtil.getParentOfType(target, PsiMethod::class.java, false) ?: return
+        // Resolve from the DESCRIPTOR, never from the element captured at
+        // construction time.
+        //
+        // A LocalQuickFix instance outlives the PSI it was built from: the
+        // ProblemDescriptor survives the very edit that invalidates the element.
+        // Typing one character after the warning appears and then pressing
+        // Alt+Enter threw PsiInvalidElementAccessException — a red IDE error and
+        // no scratch file, on the exact beat this feature is demoed.
+        val anchor = descriptor.psiElement?.takeIf { it.isValid }
+            ?: target.takeIf { it.isValid }
+            ?: return
+        val method = PsiTreeUtil.getParentOfType(anchor, PsiMethod::class.java, false)
+            ?.takeIf { it.isValid }
+            ?: return
         val testSource = buildTestSkeleton(method)
         val scratchFile = ScratchRootType.getInstance().createScratchFile(
             project, "${method.name}EdgeCaseTest.java", JavaLanguage.INSTANCE, testSource

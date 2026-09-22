@@ -61,11 +61,6 @@ class RippleAnalyzeAction : AnAction() {
         val vfile: VirtualFile = e.getData(CommonDataKeys.VIRTUAL_FILE) ?: return
         val caret = editor.caretModel.offset
 
-        // Resolve the trace target here, on the EDT, where read access is
-        // implicit. The config it returns holds no PSI, so it is safe to carry
-        // onto the background thread below.
-        val prepared = TraceEngine.prepare(project, psiFile, vfile, caret)
-
         BlastToolWindowFactory.showLoading(project)
 
         object : Task.Backgroundable(project, "Ripple: analyzing", true) {
@@ -75,6 +70,21 @@ class RippleAnalyzeAction : AnAction() {
 
             override fun run(indicator: ProgressIndicator) {
                 indicator.isIndeterminate = true
+
+                // Resolve the trace target on the BACKGROUND thread, not the EDT.
+                //
+                // prepare() ends in resolveLaunch(), which does blocking disk I/O:
+                // isDirectory() and listFiles() across several candidate roots. On
+                // a cold cache or a network-mapped project that froze the UI for
+                // seconds BEFORE the progress bar appeared, so the user saw a dead
+                // IDE rather than a running task.
+                //
+                // PSI needs a read action off the EDT. The returned config holds
+                // no PSI, so it is safe to use for the rest of this task.
+                indicator.text = "Ripple: resolving target"
+                val prepared = com.intellij.openapi.application.ReadAction.compute<TraceEngine.Prepared, RuntimeException> {
+                    TraceEngine.prepare(project, psiFile, vfile, caret)
+                }
 
                 indicator.text = "Ripple: finding what changed"
                 // CaretMethod, not None: on a clean working tree the panel would

@@ -1,6 +1,7 @@
 package com.ripple.inspection
 
 import com.intellij.codeInspection.ProblemsHolder
+import com.intellij.openapi.progress.ProgressManager
 import com.intellij.psi.JavaElementVisitor
 import com.intellij.psi.PsiBinaryExpression
 import com.intellij.psi.PsiForStatement
@@ -16,6 +17,7 @@ class EdgeCaseVisitor(private val holder: ProblemsHolder) : JavaElementVisitor()
 
     override fun visitForStatement(statement: PsiForStatement) {
         super.visitForStatement(statement)
+        ProgressManager.checkCanceled()
         val condition = statement.condition as? PsiBinaryExpression ?: return
         // Classic off-by-one risk: loop bound compares to a `.length`/`.size()` call using `<=`.
         val opText = condition.operationSign.text
@@ -33,8 +35,21 @@ class EdgeCaseVisitor(private val holder: ProblemsHolder) : JavaElementVisitor()
         super.visitMethod(method)
         // Unguarded recursion: method calls itself with no visible base-case if/return.
         val body = method.body ?: return
+        ProgressManager.checkCanceled()
+
+        // Pre-filter on the reference NAME before resolving.
+        //
+        // resolveMethod() is expensive, and running it on every call site of
+        // every method of every open file on every inspection pass made typing
+        // in a large file feel like the IDE had hung. A self-call must be
+        // spelled with this method's own name, so a string comparison discards
+        // essentially all of them for free. Only survivors get resolved.
         val selfCalls = PsiTreeUtil.findChildrenOfType(body, PsiMethodCallExpression::class.java)
-            .filter { it.resolveMethod() == method }
+            .filter { it.methodExpression.referenceName == method.name }
+            .filter {
+                ProgressManager.checkCanceled()
+                it.resolveMethod() == method
+            }
         if (selfCalls.isNotEmpty()) {
             val hasEarlyReturn = PsiTreeUtil.findChildrenOfType(body, PsiIfStatement::class.java)
                 .any { PsiTreeUtil.findChildOfType(it.thenBranch, PsiReturnStatement::class.java) != null }

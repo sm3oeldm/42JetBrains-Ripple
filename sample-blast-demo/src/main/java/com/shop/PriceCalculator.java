@@ -28,7 +28,7 @@ public final class PriceCalculator {
      */
     public static double applyDiscount(double[] prices, double pct) {
         double total = 0;
-        for (int i = 0; i < prices.length; i++) {
+        for (int i = 0; i < prices.length; i++)  {
             total += prices[i];
             total = total * (1 - pct);
         }
