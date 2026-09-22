@@ -8,6 +8,12 @@
 
     <extensions defaultExtensionNs="com.intellij">
         <notificationGroup id="Ripple" displayType="BALLOON"/>
+        <localInspection language="JAVA"
+                         displayName="Ripple edge-case hypothesizer"
+                         groupName="Ripple"
+                         enabledByDefault="true"
+                         level="WARNING"
+                         implementationClass="com.ripple.inspection.EdgeCaseInspection"/>
     </extensions>
 
     <actions>
