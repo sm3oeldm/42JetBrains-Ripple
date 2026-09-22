@@ -1,0 +1,9 @@
+.gradle/
+.intellijPlatform/
+build/
+out/
+bin/
+.idea/
+*.iml
+*.log
+sample-trace-demo/out/
