@@ -55,7 +55,7 @@ object GroqClient {
         system: String,
         user: String,
         model: String = DEFAULT_MODEL,
-        maxTokens: Int = 1200,
+        maxTokens: Int = 2400,
         temperature: Double = 0.2,
         timeout: Duration = Duration.ofSeconds(45)
     ): Result {
@@ -136,8 +136,26 @@ object GroqClient {
      * generated .java file is a compile error the user has to clean up by hand.
      */
     fun extractCode(raw: String): String {
-        val fence = Regex("```(?:java|kotlin)?\\s*\\n([\\s\\S]*?)```")
-        val match = fence.find(raw)
-        return (match?.groupValues?.get(1) ?: raw).trim()
+        val closed = Regex("""```(?:java|kotlin)?\s*\n([\s\S]*?)```""").find(raw)
+        if (closed != null) return closed.groupValues[1].trim()
+
+        // UNTERMINATED fence. This happens whenever the answer is cut off by the
+        // token limit: the opening ```java is there, the closing one never
+        // arrives, and a regex requiring both silently falls through to the raw
+        // text - which then ships a literal ```java as the first line of a .java
+        // file. Strip any fence line wherever it appears.
+        return raw.replace(Regex("""(?m)^\s*```(?:java|kotlin)?\s*$"""), "").trim()
     }
+
+    /**
+     * The public class a generated file declares.
+     *
+     * Java requires the file name to match the public class name, so name the
+     * file after whatever the model actually called the class rather than after
+     * a scheme it never saw. Getting this wrong produces a file that cannot
+     * compile: ReceiptRenderTest.java containing `public class ReceiptTest`.
+     */
+    fun publicClassName(code: String): String? =
+        Regex("""public\s+(?:final\s+)?class\s+([A-Za-z_][A-Za-z0-9_]*)""")
+            .find(code)?.groupValues?.get(1)
 }

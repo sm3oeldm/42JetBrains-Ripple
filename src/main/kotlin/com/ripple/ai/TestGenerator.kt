@@ -47,9 +47,13 @@ object TestGenerator {
         val viaPath: List<String>,
         val changedMethod: String,
         val observedValues: List<String>,
-        val styleExample: String?
+        val styleExample: String?,
+        /** Values recorded for a method this one CALLS, when it has none itself. */
+        val borrowedFrom: String? = null,
+        val borrowedValues: List<String> = emptyList()
     ) {
         val hasRuntimeEvidence: Boolean get() = observedValues.isNotEmpty()
+        val hasBorrowedEvidence: Boolean get() = borrowedValues.isNotEmpty()
     }
 
     private const val MAX_SOURCE_CHARS = 2_500
@@ -81,7 +85,9 @@ object TestGenerator {
             viaPath = routeTo(node, result),
             changedMethod = result.roots.firstOrNull()?.displayName?.substringBefore('(') ?: "the changed method",
             observedValues = observedFor(node, trace),
-            styleExample = existingTestStyle(project, owner)
+            styleExample = existingTestStyle(project, owner),
+            borrowedFrom = borrowed(node, result, trace)?.first,
+            borrowedValues = borrowed(node, result, trace)?.second.orEmpty()
         )
     }
 
@@ -121,6 +127,31 @@ object TestGenerator {
                 "line ${e.lineNumber}: " + e.variableSnapshots.entries.joinToString(", ") { "${it.key}=${it.value}" }
             }
             .toList()
+    }
+
+    /**
+     * Real values from a method this one CALLS, when it recorded none itself.
+     *
+     * Receipt.render never executed, so it has no values of its own - but it
+     * calls applyDiscount, which we DID record. Handing the model
+     * "applyDiscount([100.0, 50.0, 25.0], 0.1) produced 135.9" lets it write a
+     * test using real numbers instead of inventing {10.0, 20.0, 30.0}. Without
+     * this the model falls back to tautological tests that re-call the method
+     * under test to compute their own expected value, and can never fail.
+     */
+    private fun borrowed(
+        node: BlastNode,
+        result: BlastResult,
+        trace: BlastTraceResult?
+    ): Pair<String, List<String>>? {
+        if (trace == null) return null
+        if (observedFor(node, trace).isNotEmpty()) return null
+        // The changed root is what the radius is centred on and the most likely
+        // thing this node calls.
+        val root = result.roots.firstOrNull() ?: return null
+        val rootValues = observedFor(root, trace)
+        if (rootValues.isEmpty()) return null
+        return root.displayName.substringBefore('(') to rootValues
     }
 
     /**
@@ -178,6 +209,16 @@ object TestGenerator {
             appendLine()
             appendLine("Because these values describe current behaviour, add a short comment saying the")
             appendLine("asserted value reflects existing behaviour and may itself be a bug.")
+            appendLine()
+        } else if (ctx.hasBorrowedEvidence) {
+            appendLine("This method never executed in the recorded run, so it has no values of its own.")
+            appendLine("But it calls ${ctx.borrowedFrom}, which WAS recorded. These are real:")
+            ctx.borrowedValues.forEach { appendLine("  $it") }
+            appendLine()
+            appendLine("Use these real inputs so the test exercises the same data the program")
+            appendLine("actually saw. Assert a CONCRETE literal value. Do NOT compute the expected")
+            appendLine("value by calling the code under test - a test that recomputes its own")
+            appendLine("expectation can never fail and is worthless.")
             appendLine()
         } else {
             appendLine("No runtime values were captured for this method — it never executed in the")

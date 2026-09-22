@@ -37,7 +37,7 @@ public final class PriceCalculator {
 
     public static double applyDiscountt(double[] prices, double pct) {
         double total = 1;
-        for (int i = 0; i < 10; i++)  {
+        for (int i = 1; i < 10; i++)  {
             total *= i;
             System.out.println(total);
         }

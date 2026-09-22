@@ -92,8 +92,15 @@ class GenerateTestsAction : AnAction() {
                     val source = code ?: DeterministicTestTemplate.forNode(node, ctx).also { fallbackCount++ }
                     if (code != null) aiCount++
 
-                    val name = node.key.fqcn.substringAfterLast('.').substringAfterLast('$') +
-                        node.key.methodName.replaceFirstChar { it.uppercase() } + "Test.java"
+                    // Name the FILE after the class the code actually declares.
+                    // Java requires them to match, and generating
+                    // ReceiptRenderTest.java containing `public class ReceiptTest`
+                    // produces a file that cannot compile - which is worse than
+                    // no file, because it looks like it worked.
+                    val declared = GroqClient.publicClassName(source)
+                    val fallbackName = node.key.fqcn.substringAfterLast('.').substringAfterLast('$') +
+                        node.key.methodName.replaceFirstChar { it.uppercase() } + "Test"
+                    val name = (declared ?: fallbackName) + ".java"
                     openScratch(project, name, source)
                     written += name
                 }
