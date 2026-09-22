@@ -25,11 +25,5 @@
             <add-to-group group-id="EditorPopupMenu" anchor="first"/>
             <keyboard-shortcut keymap="$default" first-keystroke="control alt T"/>
         </action>
-        <action id="Ripple.Diagnose"
-                class="com.ripple.actions.RippleDiagnoseAction"
-                text="Ripple: Diagnose Inspection"
-                description="Temporary diagnostic for the hackathon">
-            <add-to-group group-id="ToolsMenu" anchor="first"/>
-        </action>
     </actions>
 </idea-plugin>
