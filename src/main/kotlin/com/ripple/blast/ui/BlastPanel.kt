@@ -74,11 +74,18 @@ class BlastPanel(
     private var showOnlyUncovered: Boolean = false
 
     // --- stats header ---------------------------------------------------
-    private val radiusValue = bigNumberLabel(null)
-    private val noTestValue = bigNumberLabel(BlastTreeRenderer.RED)
-    private val uncoveredValue = heroNumberLabel()
-    private val neverRanValue = bigNumberLabel(BlastTreeRenderer.RED)
-    private val neverRanCell: JPanel
+    //
+    // ONE hero number, not four.
+    //
+    // Four big numbers of equal weight give the eye nowhere to land - you have
+    // to read all four to learn which matters. Only one of them is the finding:
+    // how much of what you touched has nothing protecting it. The rest are
+    // context for that number, so they belong in a quiet line beside it.
+    private val noTestValue = heroNumberLabel()
+    private val supportingStats = JBLabel("").apply {
+        font = JBUI.Fonts.label(12f)
+        foreground = JBUI.CurrentTheme.Label.disabledForeground()
+    }
     private val truncationNote = JBLabel("").apply {
         font = JBUI.Fonts.label(11f)
         foreground = JBUI.CurrentTheme.Label.disabledForeground()
@@ -114,22 +121,21 @@ class BlastPanel(
     private val cardHost = JPanel(cards)
 
     init {
-        neverRanCell = statCell(neverRanValue, "never ran")
-        neverRanCell.isVisible = false
-
         val header = JPanel().apply {
             layout = BoxLayout(this, BoxLayout.X_AXIS)
-            border = BorderFactory.createCompoundBorder(
-                JBUI.Borders.customLineBottom(JBUI.CurrentTheme.CustomFrameDecorations.separatorForeground()),
-                JBUI.Borders.empty(14, 16)
-            )
-            add(statCell(radiusValue, "in blast radius"))
-            add(Box.createHorizontalStrut(JBUI.scale(28)))
+            border = JBUI.Borders.empty(14, 16, 4, 16)
             add(statCell(noTestValue, "with no test"))
-            add(Box.createHorizontalStrut(JBUI.scale(28)))
-            add(statCell(uncoveredValue, "uncovered"))
-            add(Box.createHorizontalStrut(JBUI.scale(28)))
-            add(neverRanCell)
+            add(Box.createHorizontalStrut(JBUI.scale(20)))
+            // Bottom-aligned so the quiet line sits on the hero number's
+            // baseline instead of floating beside its cap height.
+            add(JPanel().apply {
+                isOpaque = false
+                layout = BoxLayout(this, BoxLayout.Y_AXIS)
+                alignmentY = Component.BOTTOM_ALIGNMENT
+                add(Box.createVerticalGlue())
+                add(supportingStats)
+                add(Box.createVerticalStrut(JBUI.scale(6)))
+            })
             add(Box.createHorizontalGlue())
         }
 
@@ -201,11 +207,12 @@ class BlastPanel(
         current = result
 
         val neverRan = result.distinctNodes.count { it.isUnprovenAndUnrun }
-        radiusValue.text = result.totalInRadius.toString()
         noTestValue.text = result.redList.size.toString()
-        uncoveredValue.text = "${result.uncoveredPercent}%"
-        neverRanValue.text = neverRan.toString()
-        neverRanCell.isVisible = neverRan > 0
+        supportingStats.text = buildString {
+            append("of ${result.totalInRadius} in the blast radius")
+            append("  ·  ${result.uncoveredPercent}% uncovered")
+            if (neverRan > 0) append("  ·  $neverRan never ran")
+        }
 
         val changed = result.roots.firstOrNull()?.displayName?.substringBefore('(')
         explanation.text = when {
@@ -451,10 +458,6 @@ class BlastPanel(
         }
     }
 
-    private fun bigNumberLabel(color: Color?): JBLabel = JBLabel("0", SwingConstants.LEFT).apply {
-        font = JBUI.Fonts.label(30f).asBold()
-        if (color != null) foreground = color
-    }
 
     /** The loudest thing in the panel. */
     private fun heroNumberLabel(): JBLabel = JBLabel("0%", SwingConstants.LEFT).apply {

@@ -54,31 +54,35 @@ class BlastTreeRenderer : ColoredTreeCellRenderer() {
             node.coverage == Coverage.COVERED -> MUTED_ATTRIBUTES
             else -> SimpleTextAttributes.REGULAR_ATTRIBUTES
         }
-        append(node.displayName, nameAttributes)
+        // Name WITHOUT the parameter list. "Receipt.render(double[], double)" is
+        // precise and unreadable; "Receipt.render" identifies it just as well at
+        // a glance, and the full signature is one hover away in the tooltip.
+        append(node.displayName.substringBefore('('), nameAttributes)
 
-        // 2. The badge. A node that no test reaches AND that never executed is
-        //    the strongest finding the product can make, so it gets an opaque
-        //    chip rather than more grey text.
+        // 2. The badge. A node no test reaches AND that never executed is the
+        //    strongest finding the product can make, so it stays an opaque chip.
+        //    Everything around it is deliberately quiet so this is the only loud
+        //    thing in the row.
         if (node.isUnprovenAndUnrun) {
             append("  never ran  ", NEVER_RAN_BADGE)
         }
 
-        // 3. Secondary context, always grey: hop distance, THE PATH, then file.
-        append(hopLabel(node), SimpleTextAttributes.GRAYED_ATTRIBUTES)
-
-        // "2 hops" states a distance but not a route, and the route is the whole
-        // argument: Report.monthlyTotal is at risk BECAUSE it calls
-        // Report.summarise, which calls the changed method. Without this the row
-        // is a claim; with it the row explains itself, which is exactly what a
-        // judge asks out loud.
+        // 3. ONE trailing grey segment, not three.
+        //
+        // A row used to carry five separate things: signature, badge, hops,
+        // route, and file name. At that density nothing reads, and the file name
+        // was pure repetition — "Receipt.render" already says it lives in
+        // Receipt.java. Hops and route are the same fact, so they are one phrase.
         val via = viaPath(value as? DefaultMutableTreeNode)
-        if (via != null) {
-            append("  via $via", SimpleTextAttributes.GRAYED_ITALIC_ATTRIBUTES)
+        val distance = hopLabel(node).trim()
+        val trailing = when {
+            distance.isEmpty() && via == null -> null
+            via == null -> distance
+            distance.isEmpty() -> "via $via"
+            else -> "$distance via $via"
         }
-
-        val fileName = shortFileName(node.filePath)
-        if (fileName != null) {
-            append("  $fileName", SimpleTextAttributes.GRAYED_ATTRIBUTES)
+        if (trailing != null) {
+            append("   $trailing", SimpleTextAttributes.GRAYED_ATTRIBUTES)
         }
 
         toolTipText = buildTooltip(node)
@@ -124,11 +128,6 @@ class BlastTreeRenderer : ColoredTreeCellRenderer() {
         else -> "  ${node.hops} hops"
     }
 
-    private fun shortFileName(path: String?): String? {
-        if (path.isNullOrBlank()) return null
-        val name = path.substringAfterLast('/').substringAfterLast('\\')
-        return if (name.isBlank()) null else name
-    }
 
     private fun buildTooltip(node: BlastNode): String {
         val coverage = when (node.coverage) {
