@@ -32,8 +32,16 @@ public final class PriceCalculator {
             total += prices[i];
             total = total * (1 - pct);
         }
-        int name = 5;
         return round(total);
+    }
+
+    public static double applyDiscountt(double[] prices, double pct) {
+        double total = 1;
+        for (int i = 0; i < 10; i++)  {
+            total *= i;
+            System.out.println(total);
+        }
+        return total;
     }
 
     static double round(double v) {

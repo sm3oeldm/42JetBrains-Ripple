@@ -43,7 +43,11 @@ class BlastTreeRenderer : ColoredTreeCellRenderer() {
             return
         }
 
-        val node = userObject as? BlastNode ?: return
+        // Rows arrive wrapped with the tests that cover them; a bare BlastNode is
+        // still accepted so the renderer works in tests and previews.
+        val row = userObject as? BlastPanel.Row
+        val node = row?.node ?: userObject as? BlastNode ?: return
+        val coveredBy = row?.coveredBy.orEmpty()
 
         icon = iconFor(node)
 
@@ -85,7 +89,18 @@ class BlastTreeRenderer : ColoredTreeCellRenderer() {
             append("   $trailing", SimpleTextAttributes.GRAYED_ATTRIBUTES)
         }
 
-        toolTipText = buildTooltip(node)
+        // The tests that prove this method is safe, folded in rather than listed
+        // as separate rows. One name is worth reading; beyond that a count is.
+        if (coveredBy.isNotEmpty()) {
+            val label = if (coveredBy.size == 1) {
+                "covered by ${coveredBy.first()}"
+            } else {
+                "covered by ${coveredBy.size} tests"
+            }
+            append("   $label", TEST_ATTRIBUTES)
+        }
+
+        toolTipText = buildTooltip(node, coveredBy)
     }
 
     private fun iconFor(node: BlastNode) = when {
@@ -129,7 +144,7 @@ class BlastTreeRenderer : ColoredTreeCellRenderer() {
     }
 
 
-    private fun buildTooltip(node: BlastNode): String {
+    private fun buildTooltip(node: BlastNode, coveredBy: List<String> = emptyList()): String {
         val coverage = when (node.coverage) {
             Coverage.COVERED -> "Reached by at least one test."
             Coverage.UNCOVERED -> "NO test reaches this method."
@@ -142,7 +157,9 @@ class BlastTreeRenderer : ColoredTreeCellRenderer() {
             Execution.NOT_RECORDED -> "No recording made yet."
         }
         val where = if (node.line > 0) "${node.key.fqcn} line ${node.line}" else node.key.fqcn
-        return "<html>${node.key.id}<br>$where<br><br>$coverage<br>$execution</html>"
+        val tests = if (coveredBy.isEmpty()) "" else
+            "<br><br>Covered by:<br>" + coveredBy.joinToString("<br>") { "&nbsp;&nbsp;$it" }
+        return "<html>${node.key.id}<br>$where<br><br>$coverage<br>$execution$tests</html>"
     }
 
     companion object {

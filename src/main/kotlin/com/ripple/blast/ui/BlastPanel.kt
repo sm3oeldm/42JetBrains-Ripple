@@ -271,16 +271,43 @@ class BlastPanel(
         TreeUtil.expandAll(tree)
     }
 
-    /** Red first, then nearest, then alphabetical. The hero list floats up. */
+    /**
+     * One row per method that can BREAK. Tests are evidence, not rows.
+     *
+     * Every test method used to become its own node, which was wrong twice over.
+     * A test is not a thing your change endangers — it is the proof that
+     * something else is safe. And because a test typically reaches the changed
+     * method through several paths, expanding it as a node produced the same
+     * test repeatedly at different depths. After generating a handful of tests
+     * the tree blew past the 500-node cap and filled with duplicates.
+     *
+     * Tests are now folded into the method they cover, as a trailing note.
+     *
+     * Red first, then nearest, then alphabetical, so the findings float up.
+     */
     private fun addChildren(parent: DefaultMutableTreeNode, nodes: List<BlastNode>, budget: IntArray) {
         for (node in nodes.sortedWith(NODE_ORDER)) {
             if (budget[0] <= 0) return
+            if (node.kind == NodeKind.TEST) continue   // evidence, not a row
             budget[0]--
-            val treeNode = DefaultMutableTreeNode(node)
+
+            val coveredBy = node.children
+                .filter { it.kind == NodeKind.TEST }
+                .map { it.displayName.substringBefore('(') }
+                .distinct()
+
+            val treeNode = DefaultMutableTreeNode(Row(node, coveredBy))
             parent.add(treeNode)
             addChildren(treeNode, node.children, budget)
         }
     }
+
+    /**
+     * What a tree row actually carries: the method, plus the tests that prove it
+     * is safe. Kept local to the panel so [BlastNode] stays a pure analysis type
+     * with no presentation concerns.
+     */
+    data class Row(val node: BlastNode, val coveredBy: List<String>)
 
     /** Keeps a node only if it is red or leads to something red. */
     private fun keepRedPaths(node: BlastNode): BlastNode? {

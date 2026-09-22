@@ -73,6 +73,8 @@ class RippleAnalyzeAction : AnAction() {
             private var blastTrace: BlastTraceResult? = null
             private var traceProblem: String? = null
 
+            private val startedAt = System.currentTimeMillis()
+
             override fun run(indicator: ProgressIndicator) {
                 indicator.isIndeterminate = true
 
@@ -135,6 +137,23 @@ class RippleAnalyzeAction : AnAction() {
 
                         // Inlay chips still come from the edited method's slice.
                         session = blastTrace?.sessionFor(changedRootId(result))
+
+                        // Publish EVERY node's slice to TraceStore.
+                        //
+                        // The scrubber looks up recordings there by qualified
+                        // method name. Analyze records through BlastTraceSession
+                        // and used to bypass TraceStore entirely, so Ctrl+Alt+K
+                        // reported "no recording" immediately after a successful
+                        // recording - and told the user to run an action that had
+                        // just run. Now anything we recorded is scrubbable.
+                        blastTrace?.let { bt ->
+                            val store = com.ripple.engine.TraceStore.getInstance(project)
+                            bt.byNode.values.forEach { nodeTrace ->
+                                if (nodeTrace.events.isNotEmpty()) {
+                                    store.put(nodeTrace.toTraceSession(startedAt, bt.truncated))
+                                }
+                            }
+                        }
                     }
                     is TraceEngine.Prepared.Failed -> {
                         traceProblem = describe(prepared.failure)
@@ -203,6 +222,24 @@ class RippleAnalyzeAction : AnAction() {
             "(${result.uncoveredPercent}%)"
         val trace = blastTrace
         val neverRan = result.distinctNodes.count { it.isUnprovenAndUnrun }
+
+        // The single most confusing outcome: you edit a method, press Analyze,
+        // and no values appear. That happens when the method never executed -
+        // usually because nothing calls it yet - and saying nothing makes the
+        // whole feature look broken rather than the code look unreachable.
+        // So say it, and say WHY.
+        val root = result.roots.firstOrNull()
+        if (trace != null && !trace.timedOut && root != null &&
+            !trace.executedNodeIds.contains(root.key.id)
+        ) {
+            val name = root.displayName.substringBefore('(')
+            val entry = trace.armedClasses.firstOrNull()?.substringAfterLast('.')
+            return "Ripple: $name never ran, so there are no values to show. " +
+                "Nothing reached it from the entry point" +
+                (entry?.let { " ($it)" } ?: "") +
+                " — add a call to it, or put the caret in a method that does run."
+        }
+
         val tail = when {
             trace != null && !trace.timedOut ->
                 " · recorded ${trace.orderedEvents.size} snapshots across " +

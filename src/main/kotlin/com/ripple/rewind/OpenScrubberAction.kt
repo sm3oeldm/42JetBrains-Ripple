@@ -49,7 +49,7 @@ class OpenScrubberAction : AnAction() {
         if (session == null) {
             notify(
                 project,
-                "No recording for $methodQualifiedName yet — run \"Trace This Method\" (Ctrl+Alt+T) first.",
+                "No recording for $methodQualifiedName yet — run \"Ripple: Analyze This Change\" (Ctrl+Alt+R) first.",
                 NotificationType.WARNING
             )
             return
@@ -57,8 +57,9 @@ class OpenScrubberAction : AnAction() {
         if (session.events.isEmpty()) {
             notify(
                 project,
-                "The recording for $methodQualifiedName is empty — trace it again " +
-                    "(the class must be compiled with debug info, javac -g).",
+                "$methodQualifiedName never ran, so there is nothing to scrub. " +
+                    "Either nothing calls it from the entry point, or the class was " +
+                    "compiled without debug info (javac -g).",
                 NotificationType.WARNING
             )
             return
