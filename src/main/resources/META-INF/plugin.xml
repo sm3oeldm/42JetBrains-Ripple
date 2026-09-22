@@ -18,9 +18,32 @@
         <codeInsight.lineMarkerProvider
                          language="JAVA"
                          implementationClass="com.ripple.gutter.CallGraphLineMarkerProvider"/>
+        <!-- id must be literally "Ripple": BlastToolWindowFactory.TOOL_WINDOW_ID
+             looks the window up by this string, and the README and demo script
+             both call it "the Ripple tool window". -->
+        <toolWindow id="Ripple"
+                    anchor="right"
+                    icon="AllIcons.Toolwindows.ToolWindowFind"
+                    factoryClass="com.ripple.blast.ui.BlastToolWindowFactory"/>
     </extensions>
 
     <actions>
+        <!-- The one you demo: blast radius + recording + correlation, one keystroke.
+             Ctrl+Alt+R has no binding in IDEA 2024.3's $default keymap. -->
+        <action id="Ripple.Analyze"
+                class="com.ripple.actions.RippleAnalyzeAction"
+                text="Ripple: Analyze This Change"
+                description="Show what this change can break, what no test protects, and record it running">
+            <add-to-group group-id="EditorPopupMenu" anchor="first"/>
+            <keyboard-shortcut keymap="$default" first-keystroke="control alt R"/>
+        </action>
+        <action id="Ripple.Scrub"
+                class="com.ripple.rewind.OpenScrubberAction"
+                text="Ripple: Scrub Recording"
+                description="Drag through the recorded run and watch the values change">
+            <add-to-group group-id="EditorPopupMenu" anchor="after" relative-to-action="Ripple.Analyze"/>
+            <keyboard-shortcut keymap="$default" first-keystroke="control alt K"/>
+        </action>
         <action id="Ripple.TraceMethod"
                 class="com.ripple.actions.TraceMethodAction"
                 text="Trace This Method"
