@@ -1,5 +1,0 @@
-# 42AD x JetBrains Hackathon
-
-## HELP THE DEVELOPER
-
-New idea coming soon. Document it here: problem, solution, demo script.
