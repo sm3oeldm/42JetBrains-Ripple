@@ -13,3 +13,7 @@ sample-blast-demo/build/
 
 # Agent worktrees / local tooling — never part of the submission
 .claude/
+
+# Local secrets — NEVER committed. The API key lives here, not in source.
+.ripple-local.properties
+*.local.properties

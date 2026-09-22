@@ -37,6 +37,13 @@
             <add-to-group group-id="EditorPopupMenu" anchor="first"/>
             <keyboard-shortcut keymap="$default" first-keystroke="control alt R"/>
         </action>
+        <action id="Ripple.GenerateTests"
+                class="com.ripple.actions.GenerateTestsAction"
+                text="Ripple: Write the Missing Tests"
+                description="Write tests for the untested methods in the blast radius, using the values the recording observed">
+            <add-to-group group-id="EditorPopupMenu" anchor="after" relative-to-action="Ripple.Analyze"/>
+            <keyboard-shortcut keymap="$default" first-keystroke="control alt W"/>
+        </action>
         <action id="Ripple.Scrub"
                 class="com.ripple.rewind.OpenScrubberAction"
                 text="Ripple: Scrub Recording"

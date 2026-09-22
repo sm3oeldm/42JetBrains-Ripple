@@ -164,6 +164,10 @@ class RippleAnalyzeAction : AnAction() {
             }
 
             override fun onSuccess() {
+                // Publish before painting: the generate-tests action reads this,
+                // and re-deriving it would mean relaunching the debuggee.
+                com.ripple.RippleState.getInstance(project)
+                    .put(result, blastTrace, System.currentTimeMillis())
                 BlastToolWindowFactory.showResult(project, result)
                 session?.let { s ->
                     if (!editor.isDisposed) TraceTrailRenderer.render(editor, s)
