@@ -81,4 +81,77 @@ object ProjectRebuilder {
         }
         return outcome.get()
     }
+
+    /**
+     * Compile the sources ourselves when the IDE cannot.
+     *
+     * Not every project gives IntelliJ something to build. A folder opened
+     * directly, or a Gradle project whose import never completed, has no module
+     * and no compiler output — `CompilerManager.make` silently does nothing, the
+     * classes stay stale, and [StalenessCheck] then refuses to record. Correct,
+     * but useless: the user edited a file and the tool just says no.
+     *
+     * So we fall back to javac with -g, straight into the same output directory
+     * we are about to trace. It is the same command the user would type, and it
+     * means "edit a method, press Analyze" works on a project the IDE cannot
+     * build for us.
+     *
+     * @return true if anything was compiled.
+     */
+    fun javacFallback(
+        project: Project,
+        javaBin: String,
+        classpathRoot: String,
+        indicator: ProgressIndicator?
+    ): Boolean {
+        val javac = javacBesideJava(javaBin) ?: return false
+        val base = project.basePath ?: return false
+
+        val sources = java.io.File(base).walkTopDown()
+            .onEnter { it.name != "build" && it.name != "out" && !it.name.startsWith(".") }
+            .filter { it.isFile && it.extension == "java" }
+            .map { it.absolutePath }
+            .toList()
+        if (sources.isEmpty()) return false
+
+        indicator?.text = "Ripple: compiling ${sources.size} source file(s)"
+        return try {
+            // -g keeps local variable names, which is the whole point: without
+            // them the trace records line hits with no values.
+            val cmd = listOf(javac, "-g", "-d", classpathRoot) + sources
+            val process = ProcessBuilder(cmd).redirectErrorStream(true).start()
+            val output = process.inputStream.bufferedReader().use { it.readText() }
+            val finished = process.waitFor(60, TimeUnit.SECONDS)
+            if (!finished) {
+                process.destroyForcibly()
+                log.warn("Ripple: javac fallback timed out")
+                return false
+            }
+            if (process.exitValue() != 0) {
+                log.warn("Ripple: javac fallback failed: ${output.take(400)}")
+                return false
+            }
+            log.info("Ripple: compiled ${sources.size} file(s) into $classpathRoot")
+            true
+        } catch (e: InterruptedException) {
+            Thread.currentThread().interrupt()
+            false
+        } catch (e: Exception) {
+            log.warn("Ripple: javac fallback could not run (${e.javaClass.simpleName})")
+            false
+        }
+    }
+
+    /**
+     * The javac sitting next to the java we are about to launch.
+     *
+     * Note the local is NOT called `java`: that shadows the `java` package, and
+     * the very next `java.io.File` then resolves to the variable instead.
+     */
+    private fun javacBesideJava(javaBin: String): String? {
+        val javaExe = java.io.File(javaBin)
+        val exe = if (javaExe.name.endsWith(".exe")) "javac.exe" else "javac"
+        val candidate = java.io.File(javaExe.parentFile ?: return null, exe)
+        return if (candidate.isFile) candidate.absolutePath else null
+    }
 }

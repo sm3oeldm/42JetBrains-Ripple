@@ -132,8 +132,22 @@ class RippleAnalyzeAction : AnAction() {
                             .compute<Map<String, String?>, RuntimeException> {
                                 result.distinctNodes.associate { n -> n.key.fqcn to n.filePath }
                             }
-                        val freshness = com.ripple.engine.StalenessCheck
+                        var freshness = com.ripple.engine.StalenessCheck
                             .check(prepared.config.classpath, sources)
+
+                        // The IDE build may have done nothing - a folder opened
+                        // directly, or a Gradle import that never produced a
+                        // module, leaves CompilerManager with nothing to compile.
+                        // Rather than refuse, compile it ourselves and re-check.
+                        if (freshness is com.ripple.engine.StalenessCheck.Verdict.Stale) {
+                            val compiled = com.ripple.engine.ProjectRebuilder.javacFallback(
+                                project, prepared.config.javaBin, prepared.config.classpath, indicator
+                            )
+                            if (compiled) {
+                                freshness = com.ripple.engine.StalenessCheck
+                                    .check(prepared.config.classpath, sources)
+                            }
+                        }
 
                         if (freshness is com.ripple.engine.StalenessCheck.Verdict.Stale) {
                             staleness = freshness.summary
