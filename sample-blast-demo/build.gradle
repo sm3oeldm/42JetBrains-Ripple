@@ -1,0 +1,17 @@
+// Deliberately a real Gradle project, not a loose folder.
+// IntelliJ then configures src/main/java and src/test/java as proper source and
+// TEST source roots, so ProjectFileIndex.isInTestSourceContent() returns real
+// answers and the red list is computed from the module model rather than from a
+// filename heuristic.
+plugins { id 'java' }
+repositories { mavenCentral() }
+dependencies {
+    testImplementation 'junit:junit:4.13.2'
+}
+java {
+    toolchain { languageVersion = JavaLanguageVersion.of(21) }
+}
+tasks.withType(JavaCompile) {
+    // -g keeps local variable names, which is what the tracer reads.
+    options.compilerArgs << '-g'
+}

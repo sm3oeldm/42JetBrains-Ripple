@@ -47,7 +47,15 @@ public class JdiProbe {
     static final int REVERSE_FIRST_LINE = 22;
     static final int REVERSE_LAST_LINE = 26;
 
+    // Usage: java -cp <cp> JdiProbe [classpath mainClass targetClass firstLine lastLine]
+    // Defaults reproduce the original Demo.reverse() check.
     public static void main(String[] args) throws Exception {
+        String cp        = args.length > 0 ? args[0] : "out";
+        String mainClass = args.length > 1 ? args[1] : "Demo";
+        String target    = args.length > 2 ? args[2] : "Demo";
+        int firstLine    = args.length > 3 ? Integer.parseInt(args[3]) : REVERSE_FIRST_LINE;
+        int lastLine     = args.length > 4 ? Integer.parseInt(args[4]) : REVERSE_LAST_LINE;
+
         int port;
         try (ServerSocket s = new ServerSocket(0)) { port = s.getLocalPort(); }
 
@@ -56,15 +64,15 @@ public class JdiProbe {
         Process proc = new ProcessBuilder(
                 javaBin,
                 "-agentlib:jdwp=transport=dt_socket,server=y,suspend=y,address=" + port,
-                "-cp", "out", "Demo")
+                "-cp", cp, mainClass)
                 .inheritIO()
                 .start();
 
         VirtualMachine vm = attach(port);
-        System.out.println("[probe] attached to Demo on port " + port);
+        System.out.println("[probe] attached to " + mainClass + " on port " + port);
 
         ClassPrepareRequest cpr = vm.eventRequestManager().createClassPrepareRequest();
-        cpr.addClassFilter("Demo");
+        cpr.addClassFilter(target);
         // SUSPEND_ALL, not SUSPEND_EVENT_THREAD: nothing else may make progress
         // while we are installing breakpoints, or a short main() finishes first.
         cpr.setSuspendPolicy(EventRequest.SUSPEND_ALL);
@@ -121,7 +129,7 @@ public class JdiProbe {
                     // "0 events" looks like a broken tracer rather than a
                     // stale constant. The plugin derives this range from PSI;
                     // the probe now mirrors that by scanning a superset.
-                    for (int line = REVERSE_FIRST_LINE; line <= REVERSE_LAST_LINE; line++) {
+                    for (int line = firstLine; line <= lastLine; line++) {
                         List<Location> locs;
                         try { locs = rt.locationsOfLine(line); }
                         catch (Exception e) {
@@ -142,7 +150,7 @@ public class JdiProbe {
                             bp.enable();
                         }
                         System.out.println("[probe] " + locs.size()
-                                + " breakpoint(s) set at Demo:" + line);
+                                + " breakpoint(s) set at " + target + ":" + line);
                     }
                 } else if (ev instanceof BreakpointEvent) {
                     BreakpointEvent be = (BreakpointEvent) ev;

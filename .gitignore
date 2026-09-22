@@ -7,3 +7,6 @@ bin/
 *.iml
 *.log
 sample-trace-demo/out/
+sample-blast-demo/out/
+sample-blast-demo/.gradle/
+sample-blast-demo/build/
