@@ -17,3 +17,6 @@ sample-blast-demo/build/
 # Local secrets — NEVER committed. The API key lives here, not in source.
 .ripple-local.properties
 *.local.properties
+docs/node_modules
+docs/package-lock.json
+docs/package.json
