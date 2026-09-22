@@ -14,10 +14,14 @@ import com.intellij.openapi.project.Project
 import com.intellij.openapi.vfs.VirtualFile
 import com.intellij.psi.PsiJavaFile
 import com.ripple.blast.BlastResult
-import com.ripple.blast.Execution
 import com.ripple.blast.BlastScanner
 import com.ripple.blast.ChangeDetector
-import com.ripple.blast.TraceCorrelator
+import com.ripple.engine.BlastExecutionCorrelator
+import com.ripple.engine.BlastTraceConfig
+import com.ripple.engine.BlastTraceResult
+import com.ripple.engine.BlastTraceSession
+import com.ripple.engine.BlastTraceTargets
+import com.ripple.engine.PsiMethodBodyLineResolver
 import com.ripple.blast.ui.BlastToolWindowFactory
 import com.ripple.engine.TraceEngine
 import com.ripple.engine.TraceSession
@@ -66,6 +70,7 @@ class RippleAnalyzeAction : AnAction() {
         object : Task.Backgroundable(project, "Ripple: analyzing", true) {
             private var result: BlastResult = BlastResult.empty()
             private var session: TraceSession? = null
+            private var blastTrace: BlastTraceResult? = null
             private var traceProblem: String? = null
 
             override fun run(indicator: ProgressIndicator) {
@@ -100,9 +105,26 @@ class RippleAnalyzeAction : AnAction() {
 
                 when (prepared) {
                     is TraceEngine.Prepared.Ok -> {
-                        indicator.text = "Ripple: recording ${prepared.config.methodQualifiedName}"
-                        session = try {
-                            TraceEngine.run(project, prepared.config, indicator)
+                        // Instrument the WHOLE blast radius, not just the edited
+                        // method. This is the integration: the radius decides what
+                        // is worth recording (which is what keeps JDI tracing fast
+                        // enough to be usable), and the recording then tells us
+                        // which of those nodes actually ran.
+                        val targets = BlastTraceTargets.from(
+                            result,
+                            resolver = PsiMethodBodyLineResolver(project)
+                        )
+                        indicator.text = "Ripple: recording ${targets.size} methods"
+
+                        blastTrace = try {
+                            if (targets.isEmpty()) null else BlastTraceSession(
+                                BlastTraceConfig(
+                                    javaBin = prepared.config.javaBin,
+                                    classpath = prepared.config.classpath,
+                                    mainClass = prepared.config.mainClass,
+                                    targets = targets
+                                )
+                            ).run(indicator)
                         } catch (t: com.intellij.openapi.progress.ProcessCanceledException) {
                             throw t
                         } catch (t: Throwable) {
@@ -110,26 +132,34 @@ class RippleAnalyzeAction : AnAction() {
                             traceProblem = t.message ?: t.javaClass.simpleName
                             null
                         }
+
+                        // Inlay chips still come from the edited method's slice.
+                        session = blastTrace?.sessionFor(changedRootId(result))
                     }
                     is TraceEngine.Prepared.Failed -> {
                         traceProblem = describe(prepared.failure)
                     }
                 }
 
-                // NOT_RECORDED, not NEVER_EXECUTED, for anything we did not
-                // instrument.
+                // Now "never ran" is a claim we are entitled to make.
                 //
-                // We record ONE method today, so every other node in the radius is
-                // simply unobserved. Defaulting those to NEVER_EXECUTED produced a
-                // flatly false claim on screen: Main.main was badged "never ran"
-                // when main is the entry point that launched the program. One
-                // obviously-wrong badge discredits every other badge next to it.
+                // BlastExecutionCorrelator only judges nodes in
+                // BlastTraceResult.targetedNodeIds — nodes we actually
+                // instrumented. Anything outside that stays NOT_RECORDED, so we
+                // can never repeat the earlier bug of badging Main.main as
+                // "never ran" when main is what launched the program.
                 //
-                // "Never ran" only becomes truthful once the tracer instruments
-                // the whole radius; until then we say nothing rather than
-                // something wrong.
-                session?.let {
-                    result = TraceCorrelator.correlate(result, it, unmatched = Execution.NOT_RECORDED)
+                // One exception, and it matters: if the recording TIMED OUT the
+                // debuggee was killed mid-flight, so a node that would have run
+                // later looks identical to one that never runs at all. In that
+                // case we withhold the judgement rather than publish a guess.
+                blastTrace?.let { t ->
+                    if (t.timedOut) {
+                        traceProblem = "recording timed out after ${t.orderedEvents.size} events — " +
+                            "'never ran' withheld, it would not be trustworthy"
+                    } else {
+                        result = BlastExecutionCorrelator.correlate(result, t)
+                    }
                 }
             }
 
@@ -138,7 +168,7 @@ class RippleAnalyzeAction : AnAction() {
                 session?.let { s ->
                     if (!editor.isDisposed) TraceTrailRenderer.render(editor, s)
                 }
-                notify(project, summary(result, session, traceProblem), level(result, session))
+                notify(project, summary(result, blastTrace, traceProblem), level(result, blastTrace))
             }
 
             override fun onCancel() {
@@ -153,18 +183,27 @@ class RippleAnalyzeAction : AnAction() {
         }.queue()
     }
 
+    /** The edited method, whose slice of the recording drives the inline chips. */
+    private fun changedRootId(result: BlastResult): String =
+        result.roots.firstOrNull()?.key?.id ?: ""
+
     private fun describe(f: TraceEngine.Failure): String = when (f) {
         TraceEngine.Failure.NoMethodAtCaret -> "no method at the caret to record"
         TraceEngine.Failure.NoMainInProject -> "no runnable main() in this project to launch"
         is TraceEngine.Failure.NotCompiled -> "${f.simpleName}.class not found — build first (javac -g)"
     }
 
-    private fun summary(result: BlastResult, session: TraceSession?, problem: String?): String {
+    private fun summary(result: BlastResult, blastTrace: BlastTraceResult?, problem: String?): String {
         if (result.isEmpty) return "Ripple: nothing to analyze — no changes and no method at the caret."
         val head = "${result.totalInRadius} in blast radius, ${result.redList.size} with no test " +
             "(${result.uncoveredPercent}%)"
+        val trace = blastTrace
+        val neverRan = result.distinctNodes.count { it.isUnprovenAndUnrun }
         val tail = when {
-            session != null -> " · recorded ${session.events.size} snapshots"
+            trace != null && !trace.timedOut ->
+                " · recorded ${trace.orderedEvents.size} snapshots across " +
+                    "${trace.executedNodeIds.size}/${trace.targetedNodeIds.size} methods" +
+                    if (neverRan > 0) " · $neverRan never ran" else ""
             problem != null -> " · not recorded: $problem"
             else -> ""
         }
@@ -172,9 +211,9 @@ class RippleAnalyzeAction : AnAction() {
         return "Ripple: $head$tail$capped"
     }
 
-    private fun level(result: BlastResult, session: TraceSession?): NotificationType = when {
+    private fun level(result: BlastResult, blastTrace: BlastTraceResult?): NotificationType = when {
         result.isEmpty -> NotificationType.WARNING
-        session == null -> NotificationType.WARNING
+        blastTrace == null || blastTrace.timedOut -> NotificationType.WARNING
         else -> NotificationType.INFORMATION
     }
 
