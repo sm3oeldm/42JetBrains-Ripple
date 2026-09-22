@@ -15,6 +15,9 @@
                          enabledByDefault="true"
                          level="WARNING"
                          implementationClass="com.ripple.inspection.EdgeCaseInspection"/>
+        <codeInsight.lineMarkerProvider
+                         language="JAVA"
+                         implementationClass="com.ripple.gutter.CallGraphLineMarkerProvider"/>
     </extensions>
 
     <actions>
@@ -25,11 +28,17 @@
             <add-to-group group-id="EditorPopupMenu" anchor="first"/>
             <keyboard-shortcut keymap="$default" first-keystroke="control alt T"/>
         </action>
+        <!-- Ripple.Diagnose is intentionally UNREGISTERED for submission: it is a
+             development-only inspector and judges should not see it in the Tools
+             menu. The class is kept in src (com.ripple.actions.RippleDiagnoseAction)
+             so this block can be uncommented in seconds if the inspection
+             misbehaves on the demo machine.
         <action id="Ripple.Diagnose"
                 class="com.ripple.actions.RippleDiagnoseAction"
                 text="Ripple: Diagnose Inspection"
                 description="Temporary diagnostic for the hackathon">
             <add-to-group group-id="ToolsMenu" anchor="first"/>
         </action>
+        -->
     </actions>
 </idea-plugin>

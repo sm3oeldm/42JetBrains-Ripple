@@ -18,7 +18,7 @@ repositories {
 
 dependencies {
     intellijPlatform {
-        intellijIdeaCommunity("2024.3.5")
+        intellijIdeaCommunity(providers.gradleProperty("platformVersion").get())
         bundledPlugin("com.intellij.java")
         pluginVerifier()
         instrumentationTools()

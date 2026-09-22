@@ -1,5 +1,6 @@
 package com.ripple.engine
 
+import com.intellij.openapi.progress.ProcessCanceledException
 import com.intellij.openapi.progress.ProgressIndicator
 import com.sun.jdi.ArrayReference
 import com.sun.jdi.Bootstrap
@@ -111,11 +112,9 @@ class JdiSession(private val config: JdiTraceConfig) {
                             val visit = visits.getOrDefault(line, 0)
                             visits[line] = visit + 1
                             events += capture(ev, line, visit)
-                            val doneSoFar = events.size
-                            indicator?.apply {
-                                text = "Tracing ${config.methodQualifiedName}… $doneSoFar events"
-                                fraction = -1.0 // indeterminate
-                            }
+                            // Indeterminate progress is set via isIndeterminate by the
+                            // caller; fraction must stay within 0..1 so never assign here.
+                            indicator?.text = "Tracing ${config.methodQualifiedName}… ${events.size} events"
                         }
                         is VMDeathEvent, is VMDisconnectEvent -> done = true
                     }
@@ -126,8 +125,13 @@ class JdiSession(private val config: JdiTraceConfig) {
                     done = true
                 }
             }
+        } catch (e: ProcessCanceledException) {
+            // NEVER swallow this. It is the platform's cancellation signal; turning a
+            // user cancel into a "truncated success" makes the Cancel button look broken
+            // and leaves the progress bar lying. Clean up in finally, then rethrow.
+            throw e
         } catch (e: Exception) {
-            // Cancellation (ProcessCanceledException) or JDI failure: keep partial trace.
+            // Genuine JDI failure: keep whatever partial trace we captured.
             if (events.isEmpty()) throw e
             truncated = true
         } finally {
